@@ -332,3 +332,7 @@
 		interrupts = <GIC_SPI 168 IRQ_TYPE_LEVEL_HIGH>;
 	};
 
+	/* TODO(b/32513841): This is a fake cma device just for register trace testing purpose. */
+	paintbox_cma {
+		compatible = "google,paintbox_cma";
+	};
