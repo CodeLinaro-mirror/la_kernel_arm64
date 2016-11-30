@@ -332,6 +332,28 @@
 		interrupts = <GIC_SPI 168 IRQ_TYPE_LEVEL_HIGH>;
 	};
 
+	easel-ion@0 {
+		compatible = "easel,ion";
+
+		heap_sys_user@0 {
+			heap-name = "sys_user";
+			heap-range = <0x0 0x0 0x0 0x0>;
+			heap-type = "ion_system";
+		};
+
+		heap_sys_contig@0 {
+			heap-name = "sys_contig";
+			heap-range = <0x0 0x0 0x0 0x0>;
+			heap-type = "ion_system_contig";
+		};
+
+		heap_cma@0 {
+			heap-name = "cma";
+			heap-range = <0x0 0x0 0x0 0x0>;
+			heap-type = "ion_cma";
+		};
+	};
+
 	/* TODO(b/32513841): This is a fake cma device just for register trace testing purpose. */
 	paintbox_cma {
 		compatible = "google,paintbox_cma";
