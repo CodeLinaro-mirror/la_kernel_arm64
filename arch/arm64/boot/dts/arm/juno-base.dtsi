@@ -243,7 +243,7 @@
 		device_type = "memory";
 		/* last 16MB of the first memory area is reserved for secure world use by firmware */
 		reg = <0x00000000 0x80000000 0x0 0x7f000000>,
-		      <0x00000008 0x80000000 0x1 0x80000000>;
+		      <0x00000008 0x80000000 0x1 0x40000000>;
 	};
 
 	soc_i2s: i2s@7ff90000 {
@@ -325,6 +325,17 @@
 		/include/ "juno-motherboard.dtsi"
 	};
 
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		carveout_reserved: carveout_heap@9C0000000 {
+			compatible = "ion-region";
+			reg = <0x9 0xC0000000 0x0 0x40000000>;
+		};
+	};
+
 	paintbox@0x60000000 {
 		compatible = "uio_pdrv_genirq", "google,paintbox";
 		reg = <0x0 0x60000000 0x0 0xFFFF >,
@@ -335,6 +346,11 @@
 
 	easel-ion@0 {
 		compatible = "easel,ion";
+
+		ion-carveout {
+			compatible = "easel,carveout";
+			memory-region = <&carveout_reserved>;
+		};
 
 		ion-system-heap {
 			compatible = "easel,sys_user";
