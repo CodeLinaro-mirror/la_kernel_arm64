@@ -19,7 +19,6 @@
 #include <linux/list.h>
 #include <linux/miscdevice.h>
 #include <linux/mutex.h>
-#include <linux/spinlock.h>
 #include <linux/types.h>
 
 /*
@@ -151,7 +150,7 @@ struct easelcomm_service {
 	/* service ID (same as easelcom_service array index) */
 	unsigned int service_id;
 	/* protects access to all mutable fields below and in messages */
-	spinlock_t lock;
+	struct mutex lock;
 	/* currently registered user */
 	struct easelcomm_user_state *user;
 	/* true if service is being closed by local */
