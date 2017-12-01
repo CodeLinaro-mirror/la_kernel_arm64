@@ -988,7 +988,6 @@ static int __ref kernel_init(void *unused)
 
 static noinline void __init kernel_init_freeable(void)
 {
-	int err;
 	/*
 	 * Wait until kthreadd is all set-up.
 	 */
@@ -1040,12 +1039,16 @@ static noinline void __init kernel_init_freeable(void)
 	}
 
 #if defined CONFIG_PROCFS_MOUNT
-	/* Mount proc before user's init program */
-	err = sys_mount("proc", "/proc", "proc", MS_SILENT, NULL);
-	if (err)
-		pr_info("proc: error mounting %i\n", err);
-	else
-		pr_info("proc: mounted\n");
+	{
+		int err;
+
+		/* Mount proc before user's init program */
+		err = sys_mount("proc", "/proc", "proc", MS_SILENT, NULL);
+		if (err)
+			pr_info("proc: error mounting %i\n", err);
+		else
+			pr_info("proc: mounted\n");
+	}
 #endif
 
 	/*
