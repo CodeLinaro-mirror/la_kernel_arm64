@@ -75,6 +75,28 @@
 		};
 	};
 
+	pcie_ctlr: pcie-controller@40000000 {
+		compatible = "arm,juno-r1-pcie", "plda,xpressrich3-axi", "pci-host-ecam-generic";
+		device_type = "pci";
+		reg = <0 0x40000000 0 0x10000000>;	/* ECAM config space */
+		bus-range = <0 255>;
+		linux,pci-domain = <0>;
+		#address-cells = <3>;
+		#size-cells = <2>;
+		dma-coherent;
+		ranges = <0x01000000 0x00 0x5f800000 0x00 0x5f800000 0x0 0x00800000>,
+			 <0x02000000 0x00 0x50000000 0x00 0x50000000 0x0 0x08000000>,
+			 <0x42000000 0x40 0x00000000 0x40 0x00000000 0x1 0x00000000>;
+		#interrupt-cells = <1>;
+		interrupt-map-mask = <0 0 0 7>;
+		interrupt-map = <0 0 0 1 &gic 0 0 0 136 4>,
+				<0 0 0 2 &gic 0 0 0 137 4>,
+				<0 0 0 3 &gic 0 0 0 138 4>,
+				<0 0 0 4 &gic 0 0 0 139 4>;
+		msi-parent = <&v2m_0>;
+		status = "disabled";
+	};
+
 	scpi {
 		compatible = "arm,scpi";
 		mboxes = <&mailbox 1>;
@@ -104,7 +126,7 @@
 	};
 
 	/include/ "juno-clocks.dtsi"
-	/*
+
 	dma0: dma@7ff00000 {
 		compatible = "arm,pl330", "arm,primecell";
 		reg = <0x0 0x7ff00000 0 0x1000>;
@@ -123,23 +145,6 @@
 		clocks = <&soc_faxiclk>;
 		clock-names = "apb_pclk";
 	};
-	*/
-	dma0: dma@60042000 {
-		compatible = "snps,dma-spear1340";
-		reg = <0 0x60042000 0 0x1000>;
-		interrupts = <GIC_SPI 168 IRQ_TYPE_EDGE_RISING>;
-		is_memcpy;
-		dma-channels = <4>;
-		dma-requests = <16>;
-		dma-masters = <1>;
-		#dma-cells = <3>;
-		chan_allocation_order = <1>;
-		chan_priority = <1>;
-		block_size = <0xfff>;
-		data_width = <2>;
-		clocks = <&soc_mnh25mhz>;
-	};
-
 /*
 	hdlcd@7ff50000 {
 		compatible = "arm,hdlcd";
@@ -177,39 +182,6 @@
 		clock-names = "uartclk", "apb_pclk";
 	};
 
-	spi@60085000 {
-		compatible = "snps,dw-apb-ssi";
-		#address-cells = <1>;
-		#size-cells = <0>;
-		reg = <0x0 0x60085000 0x0 0x1000>;
-		interrupts = <GIC_SPI 168 IRQ_TYPE_EDGE_RISING>;
-		num-cs = <4>;
-		clocks = <&soc_mnh25mhz>;
-		bus-num = <0>;
-		status = "okay";
-		spidev@0 {
-			 compatible = "spidev";
-			 spi-max-frequency = <5000000>;
-			 reg = <0>;
-		};
-	};
-
-	pcie@60102000 {
-		compatible = "snps, dw_pcie_ep";
-		reg = <0x0 0x60040000 0x0 0x2000>,
-			  <0x0 0x60102000 0x0 0x1000>,
-			  <0x0 0x6F600000 0x0 0xA00000>;
-		interrupts = <GIC_SPI 168 IRQ_TYPE_EDGE_RISING>,
-					 <GIC_SPI 168 IRQ_TYPE_EDGE_RISING>;
-	};
-
-	perfmon@6008e000 {
-		compatible = "intel, perf_mon";
-		reg = <0x0 0x6008e000 0x0 0x1000>,
-			  <0x0 0x60045000 0x0 0x1000>;
-		interrupts = <GIC_SPI 168 IRQ_TYPE_EDGE_RISING>;
-	};
-
 	i2c@7ffa0000 {
 		compatible = "snps,designware-i2c";
 		reg = <0x0 0x7ffa0000 0x0 0x1000>;
@@ -244,138 +216,6 @@
 		};
 */	};
 
-
-	axi@60000000 {
-		compatible = "arm, mth-interrupt";
-		reg = <0x0 0x60000000 0x0 0x10000000>;
-		interrupts = <GIC_SPI 168 IRQ_TYPE_EDGE_RISING>;
-		
-	};	
-
-    /* i2c devices on mnh */
-    /* need to revisit the clocks line after more info from FPGA team */
-	i2c0@60087000 {
-		compatible = "snps,designware-i2c";
-		reg = <0x0 0x60087000 0x0 0x1000>;
-		#address-cells = <1>;
-		#size-cells = <0>;
-		interrupts = <GIC_SPI 168 IRQ_TYPE_EDGE_RISING>;
-		clock-frequency = <400000>;
-		i2c-sda-hold-time-ns = <500>;
-		clocks = <&soc_mnh25mhz>;  
-	};
-
-	i2c1@60088000 {
-		compatible = "snps,designware-i2c";
-		reg = <0x0 0x60088000 0x0 0x1000>;
-		#address-cells = <1>;
-		#size-cells = <0>;
-		interrupts = <GIC_SPI 168 IRQ_TYPE_EDGE_RISING>;
-		clock-frequency = <400000>;
-		i2c-sda-hold-time-ns = <500>;
-		clocks = <&soc_mnh25mhz>;  
-		
-		ds1341: rtc@D0 {
-			compatible = "rtc-ds1307";
-			reg = <0x68>;        
- 		};
-	};
-
-	i2c2@60089000 {
-		compatible = "snps,designware-i2c";
-		reg = <0x0 0x60089000 0x0 0x1000>;
-		#address-cells = <1>;
-		#size-cells = <0>;
-		interrupts = <GIC_SPI 168 IRQ_TYPE_EDGE_RISING>;
-		clock-frequency = <400000>;
-		i2c-sda-hold-time-ns = <500>;
-		clocks = <&soc_mnh25mhz>;  
-	};
-
-	i2c3@6008A000 {
-		compatible = "snps,designware-i2c";
-		reg = <0x0 0x6008A000 0x0 0x1000>;
-		#address-cells = <1>;
-		#size-cells = <0>;
-		interrupts = <GIC_SPI 168 IRQ_TYPE_EDGE_RISING>;
-		clock-frequency = <400000>;
-		i2c-sda-hold-time-ns = <500>;
-		clocks = <&soc_mnh25mhz>;  
-	};
-	gpio@60086000 {
-		compatible = "snps,dw-apb-gpio";
-		reg = <0x0 0x60086000 0x0 0x1000>;
-		#address-cells = <1>;
-		#size-cells = <0>;
-		interrupts = <GIC_SPI 168 IRQ_TYPE_EDGE_RISING>;
-
-		porta:  gpio-controller@0 {
-                 compatible = "snps,dw-apb-gpio-port";
-                 gpio-controller;
-                 #gpio-cells = <2>;
-                 snps,nr-gpios = <16>;
-                 reg = <0>;
-         };
- /* 
-        portb:  gpio-controller@1 {
-				compatible = "snps,dw-apb-gpio-port";
-				gpio-controller;
-				#gpio-cells = <2>;
-				snps,nr-gpios = <8>;
-				reg = <1>;
-          };
-        portc:  gpio-controller@2 {
-				compatible = "snps,dw-apb-gpio-port";
-				gpio-controller;
-				#gpio-cells = <2>;
-				snps,nr-gpios = <8>;
-				reg = <2>;
-          };
-        portd:  gpio-controller@3 {
-				compatible = "snps,dw-apb-gpio-port";
-				gpio-controller;
-				#gpio-cells = <2>;
-				snps,nr-gpios = <8>;
-				reg = <3>;
-          };
-*/
-	};
-	uart_0@6008B000 {
-		compatible = "snps,dw-apb-uart";
-		reg = <0x0 0x6008B000 0x0 0x1000>;
-		#address-cells = <1>;
-		#size-cells = <0>;
-		interrupts = <GIC_SPI 168 IRQ_TYPE_EDGE_RISING>;
-		clock-frequency = <25000000>;
-		reg-shift = <2>;
-		reg-io-width = <4>;
-		dcd-override;
-		ri-override;
-		
-	};
-	uart_1@6008C000 {
-		compatible = "snps,dw-apb-uart";
-		reg = <0x0 0x6008C000 0x0 0x1000>;
-		#address-cells = <1>;
-		#size-cells = <0>;
-		interrupts = <GIC_SPI 168 IRQ_TYPE_EDGE_RISING>;
-		clock-frequency = <25000000>;
-		reg-shift = <2>;
-		reg-io-width = <4>;
-		dcd-override;
-		ri-override;
-	};
-
-/*
-	wdt@60082000 {
-		compatible = "snps,dw-wdt";
-		reg = <0x0 0x60082000 0x0 0x1000>;
-		#address-cells = <1>;
-		#size-cells = <0>;
-		interrupts = <GIC_SPI 168 IRQ_TYPE_LEVEL_HIGH>;
-		clocks = <25000000>;
-	};
-*/
 	ohci@7ffb0000 {
 		compatible = "generic-ohci";
 		reg = <0x0 0x7ffb0000 0x0 0x10000>;
@@ -416,41 +256,44 @@
 		dma-names = "tx";
 	};
 
-	mipitop: mipitop@60057000 {
-		compatible = "intel,mipicsi_top";
-		reg = <0x0 0x60057000 0x0 0x0FFF>;
-		device-id = "TOP";
-		interrupts = <GIC_SPI 168 IRQ_TYPE_EDGE_RISING>;
+	hdmi_audio: hdmi_audio@0 {
+		compatible = "linux,hdmi-audio";
+		#sound-dai-cells = <0>;
+		status = "okay";
 	};
 
-	mipi_rx0: mipihost@60054000 {
-		compatible = "snps,mipicsi_host";
-		reg = <0x0 0x60054000 0x0 0xFFF>;
-		device-id = "RX0";
-		interrupts = <GIC_SPI 168 IRQ_TYPE_EDGE_RISING>;
+	sound {
+		compatible = "simple-audio-card";
+
+		simple-audio-card,format = "i2s";
+
+		simple-audio-card,cpu {
+			sound-dai = <&soc_i2s>;
+		};
+
+		simple-audio-card,codec {
+			sound-dai = <&hdmi_transmitter0 0>;
+		};
 	};
-/*
-	mipi_rx1: mipihost@60013000 {
-		compatible = "snps,mipicsi_host";
-		reg = <0x0 0x60013000 0x0 0xFFF>;
+
+	gpu: gpu@0x2d000000 {
+		compatible = "arm,malit6xx", "arm,mali";
+		#cooling-cells = <2>; /* min followed by max */
+		reg = <0x0 0x2d000000 0x0 0x4000>;
+		interrupts = <0 33 4>, <0 34 4>, <0 32 4>;
+		interrupt-names = "JOB", "MMU", "GPU";
+		clocks = <&scpi_dvfs 2>;
+		clock-names = "clk_mali";
+		power_model {
+			compatible = "arm,mali-simple-power-model";
+			voltage = <800>;
+			frequency = <500>;
+			static-power = <500>;
+			dynamic-power = <1500>;
+			ts = <20000 2000 (-20) 2>;
+			thermal-zone = "gpu";
+		};
 	};
-	mipi_rx2: mipihost@64014000 {
-		compatible = "snps,mipicsi_host";
-		reg = <0x0 0x64014000 0x0 0xFFF>;
-	};
-*/
-	mipi_tx0: mipidevice@60052000 {
-		compatible = "snps,mipicsi_device";
-		reg = <0x0 0x60052000 0x0 0xFFF>;
-		device-id = "TX0";
-		interrupts = <GIC_SPI 168 IRQ_TYPE_EDGE_RISING>;
-	};
-/*
-	mipi_tx1: mipidevice@64011000 {
-		compatible = "snps,mipicsi_device";
-		reg = <0x0 0x64011000 0x0 0xFFF>;
-	};
-*/
 
 	smb {
 		compatible = "simple-bus";
@@ -480,22 +323,4 @@
 				<0 0 12 &gic 0 0 0 169 IRQ_TYPE_LEVEL_HIGH>;
 
 		/include/ "juno-motherboard.dtsi"
-	};
-
-	apb_reg@0x6004E000 {
-		compatible = "uio_pdrv_genirq", "google,paintbox";
-		reg = <0x0 0x6004E000 0x0 0x3FFF>;
-		interrupts = <GIC_SPI 168 IRQ_TYPE_EDGE_RISING>;
-		status = "okay";
-	};
-	
-        mnh-timer {
-		  compatible = "mnh-timer";
-                  reg = <0x0 0x60083000 0x0 0x1000>;  
-	};
-
-	/* TODO(b/32513841): This is a fake cma device just for register trace testing purpose. */
-	paintbox_cma {
-		compatible = "google,paintbox_cma";
-		status = "disabled";
 	};

@@ -177,3 +177,7 @@
 &memtimer {
 	status = "okay";
 };
+
+&pcie_ctlr {
+	status = "okay";
+};

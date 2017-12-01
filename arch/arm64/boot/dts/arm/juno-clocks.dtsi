@@ -29,14 +29,6 @@
 		clock-output-names = "smc_clk";
 	};
 
-
-	soc_mnh25mhz: clk25mhz {
-		compatible = "fixed-clock";
-		#clock-cells = <0>;
-		clock-frequency = <25000000>;
-		clock-output-names = "mnh_clk";
-	};
-
 	soc_refclk100mhz: refclk100mhz {
 		compatible = "fixed-clock";
 		#clock-cells = <0>;
