@@ -114,6 +114,16 @@ struct mnh_sg_entry {
 	size_t size;       /**< size of entry */
 };
 
+/**
+ * MNH (EP side) pm event
+ */
+enum mnh_ep_pm_event_t {
+	MNH_EP_WILL_SUSPEND = 0,  /* PCIe EP will suspend */
+	MNH_EP_DID_SUSPEND,       /* PCIe EP did suspend  */
+	MNH_EP_WILL_RESUME,       /* PCIe EP will resume  */
+	MNH_EP_DID_RESUME,        /* PCIe EP did resume   */
+};
+
 struct mnh_sg_list {
 	struct page **mypage;
 	struct scatterlist *sc_list;
@@ -140,6 +150,8 @@ struct mnh_dma_ll {
 	struct mnh_dma_ll_element *ll_element[MNH_MAX_LL_ELEMENT];
 	dma_addr_t dma[MNH_MAX_LL_ELEMENT];
 };
+
+typedef int (*pm_callback_t)(enum mnh_ep_pm_event_t event, void *param);
 
 
 /*******************************************************************************
@@ -229,5 +241,11 @@ int mnh_ll_destroy(struct mnh_dma_ll *ll);
 void *mnh_alloc_coherent(size_t size, dma_addr_t *dma_adr);
 
 void mnh_free_coherent(size_t size, void *cpu_addr, dma_addr_t dma_addr);
+
+/** API to register pm callback to receive MNH suspend/resume notifications
+ * @param[in] pm_callback  handler for pm events
+ * @return 0
+ */
+int mnh_ep_reg_pm_callback(pm_callback_t pm_callback);
 
 #endif

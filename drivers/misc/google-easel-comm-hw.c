@@ -199,6 +199,34 @@ static int easelcomm_hw_easel_advertise_cmdchan(uint64_t buffer_dma_addr)
 	return ret;
 }
 
+/* Callback on MNH PCIe EP driver pm events. */
+static int easelcomm_hw_ep_pm_callback(enum mnh_ep_pm_event_t event,
+				       void *param)
+{
+	int ret = 0;
+
+	switch (event) {
+	case MNH_EP_WILL_SUSPEND:
+		pr_info("easelcomm: mnh ep will suspend; no-op\n");
+		break;
+	case MNH_EP_DID_SUSPEND:
+		pr_info("easelcomm: mnh ep did suspend; no-op\n");
+		break;
+	case MNH_EP_WILL_RESUME:
+		pr_info("easelcomm: mnh ep will resume; no-op\n");
+		break;
+	case MNH_EP_DID_RESUME:
+		pr_info("easelcomm: mnh ep did resume; initialize cmdchan\n");
+		ret = easelcomm_init_pcie_ready(local_cmdchan_cpu_addr);
+		WARN_ON(ret);
+		break;
+	default:
+		pr_err("easelcomm: unknown mnh ep hotplug type %d\n", event);
+		break;
+	}
+	return ret;
+}
+
 /* Module init time actions for EP/server */
 int easelcomm_hw_init(void)
 {
@@ -222,6 +250,10 @@ int easelcomm_hw_init(void)
 		&easelcomm_hw_easel_irq_callback,
 		&easelcomm_hw_easel_dma_callback);
 	WARN_ON(ret);
+
+	ret = mnh_ep_reg_pm_callback(&easelcomm_hw_ep_pm_callback);
+	if (WARN_ON(ret))
+		return ret;
 
 	ret = easelcomm_hw_easel_advertise_cmdchan(
 		(uint64_t)local_cmdchan_dma_addr);

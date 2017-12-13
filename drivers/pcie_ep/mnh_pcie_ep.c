@@ -88,6 +88,9 @@ static void pcie_set_power_mode_state(
 static void pcie_get_power_mode_state(
 	struct mnh_pcie_ep_power_state *power_state);
 
+/* callback when pm state changes */
+static pm_callback_t mnh_ep_pm_callback;
+
 #if MNH_PCIE_DEBUG_ENABLE
 
 /* read from pcie cluster register */
@@ -1533,6 +1536,23 @@ void mnh_free_coherent(size_t size, void *cpu_addr, dma_addr_t dma_addr)
 }
 EXPORT_SYMBOL(mnh_free_coherent);
 
+/** API to register pm callback to receive MNH suspend/resume notifications
+ * @param[in] pm_callback  handler for pm events
+ * @return 0
+ */
+int mnh_ep_reg_pm_callback(pm_callback_t pm_callback)
+{
+	dev_info(pcie_ep_dev->dev, "registering ep pm callback\n");
+	mnh_ep_pm_callback = pm_callback;
+	return 0;
+}
+EXPORT_SYMBOL(mnh_ep_reg_pm_callback);
+
+static void mnh_ep_do_pm_callback(enum mnh_ep_pm_event_t event)
+{
+	if (mnh_ep_pm_callback)
+		mnh_ep_pm_callback(event, NULL);
+}
 
 static int config_mem(struct platform_device *pdev)
 {
@@ -2321,17 +2341,24 @@ static int mnh_pcie_ep_remove(struct platform_device *pdev)
 
 static int mnh_pcie_ep_suspend(struct platform_device *pdev, pm_message_t state)
 {
+	dev_dbg(pcie_ep_dev->dev, "%s\n", __func__);
+	mnh_ep_do_pm_callback(MNH_EP_WILL_SUSPEND);
+
 	cancel_delayed_work_sync(&msi_work);
 	cancel_delayed_work_sync(&power_state_work);
 	pcie_ep_dev->power_state.l1state = 0;
 	pcie_ep_dev->power_state.clkpm = 0;
 	pcie_ep_dev->rb_base = pcie_cluster_read(MNH_PCIE_GP_1);
 
+	mnh_ep_do_pm_callback(MNH_EP_DID_SUSPEND);
 	return 0;
 }
 
 static int mnh_pcie_ep_resume(struct platform_device *pdev)
 {
+	dev_dbg(pcie_ep_dev->dev, "%s\n", __func__);
+	mnh_ep_do_pm_callback(MNH_EP_WILL_RESUME);
+
 	/*enable L1 entry */
 	PCIECAP_OUTf(PCIE_CAP_LINK_CONTROL_LINK_STATUS,
 			PCIE_CAP_ACTIVE_STATE_LINK_PM_CONTROL, 0x2);
@@ -2347,6 +2374,7 @@ static int mnh_pcie_ep_resume(struct platform_device *pdev)
 	/* set ringbuffer base address and send bootstrap msi */
 	pcie_set_rb_base(pcie_ep_dev->rb_base);
 
+	mnh_ep_do_pm_callback(MNH_EP_DID_RESUME);
 	return 0;
 }
 
