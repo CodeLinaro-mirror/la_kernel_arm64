@@ -1059,7 +1059,7 @@ static void mnh_ddr_adjust_refresh_worker(struct work_struct *work)
 
 	refresh_rate = rr_fld & val0;
 	if (refresh_rate < (rr_fld & val1)) {
-		dev_info(mnh_dev->dev,
+		dev_dbg(mnh_dev->dev,
 			"%s rrs don't match: 0x%02x != 0x%02x"
 			"deferring to higher temp die rate",
 			__func__, val0, val1);
@@ -1068,8 +1068,8 @@ static void mnh_ddr_adjust_refresh_worker(struct work_struct *work)
 
 	if ((tuf_fld & val0) ||
 		(tuf_fld & val1)) {
-		pr_info("%s TUF 0x%02x 0x%02x\n",
-			__func__, val0, val1);
+		pr_debug("%s TUF 0x%02x 0x%02x\n",
+			 __func__, val0, val1);
 		got_tuf = 1;
 	}
 
