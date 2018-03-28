@@ -63,7 +63,7 @@
 
 		carveout_reserved: carveout_heap@4E800000 {
 			compatible = "ion-region";
-			reg = <0x0 0x49000000 0x0 0x17000000>;
+			reg = <0x0 0x50000000 0x0 0x10000000>;
 		};
 	};
 
