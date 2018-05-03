@@ -61,9 +61,9 @@
 		#size-cells = <2>;
 		ranges;
 
-		carveout_reserved: carveout_heap@4E800000 {
+		carveout_reserved: carveout_heap@4C000000 {
 			compatible = "ion-region";
-			reg = <0x0 0x50000000 0x0 0x10000000>;
+			reg = <0x0 0x4C000000 0x0 0x14000000>;
 		};
 	};
 
