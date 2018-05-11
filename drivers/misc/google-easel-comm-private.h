@@ -53,11 +53,11 @@ struct easelcomm_dma_xfer_info {
 	/* Size in bytes of the local scatter-gather list, zero if discard */
 	uint32_t sg_local_size;
 	/*
-	* Local data private to the MNH layer associated with the SG list.
-	* This points to mnh_sg_list.  It marks information of
-	* the buffer for DMA transfer, and is used to collect local MNH
-	* driver scatter-gather list (sg_local).
-	*/
+	 * Local data private to the MNH layer associated with the SG list.
+	 * This points to mnh_sg_list.  It marks information of
+	 * the buffer for DMA transfer, and is used to collect local MNH
+	 * driver scatter-gather list (sg_local).
+	 */
 	void *sg_local_localdata;
 	/*
 	 * Easel/server keeps the remote scatter-gather list received from the
