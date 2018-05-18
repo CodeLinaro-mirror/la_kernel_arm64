@@ -214,16 +214,21 @@ int mnh_sg_destroy(struct mnh_sg_list *sgl);;
 /**
  * API to build a scatter-gather list for multi-block DMA transfer for a
  * dma_buf
- * @param[in] fd   Handle of dma_buf passed from user
- * @param[out] sg  Array of maxsg pointers to struct mnh_sg_entry, allocated
+ * @param[in] fd     Handle of dma_buf passed from user
+ * @param[in] off    Offset within DMA buffer from which transfer should start.
+ * @param[in] size   Size, in bytes, of transfer.
+ * @param[in] width  Width in bytes of transfer.
+ * @param[in] stride Stride in bytes. Must be greater or equal to width.
+ * @param[out] sg    Array of maxsg pointers to struct mnh_sg_entry, allocated
  *			and filled out by this routine.
- * @param[out] sgl pointer of Scatter gather list which has information of
+ * @param[out] sgl   pointer of Scatter gather list which has information of
  *			scatter gather list and num of its entries.
- * @return 0        on SUCCESS
+ * @return 0         on SUCCESS
  *         negative on failure
  */
-int mnh_sg_retrieve_from_dma_buf(int fd, struct mnh_sg_entry **sg,
-		struct mnh_sg_list *sgl);
+int mnh_sg_retrieve_from_dma_buf(int fd, uint32_t off, uint32_t size,
+		uint32_t width, uint32_t stride,
+		struct mnh_sg_entry **sg, struct mnh_sg_list *sgl);
 
 /**
  * API to release a scatter-gather list for a dma_buf
