@@ -1,5 +1,5 @@
 config MNH_SWAP
         tristate "MNH Swap partition for hibernation support using PCIe outbound region"        
-	default y
+	default n
         ---help---
 	    This block driver is used to read and write data to the PCIe outbound region.
