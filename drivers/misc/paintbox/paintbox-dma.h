@@ -102,6 +102,10 @@ struct paintbox_dma_channel *get_dma_channel(struct paintbox_data *pb,
 		int *err);
 
 /* The caller to this function must hold pb->lock */
+int allocate_dma_channel(struct paintbox_data *pb,
+		struct paintbox_session *session, unsigned int channel_id);
+
+/* The caller to this function must hold pb->lock */
 void release_dma_channel(struct paintbox_data *pb,
 		struct paintbox_session *session,
 		struct paintbox_dma_channel *dma);

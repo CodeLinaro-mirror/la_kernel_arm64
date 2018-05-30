@@ -754,9 +754,9 @@ struct paintbox_dma_channel *dma_handle_mipi_stream_allocated(
 
 	channel = &pb->dma.channels[channel_id];
 
-	/* If the DMA channel is already associated with a MIPI stream, then it cannot
-	 * be associated with this stream. This can happen on Canvas, which shares DMA
-	 * channels across MIPI output interafces.
+	/* If the DMA channel is already associated with a MIPI stream, then it
+	 * cannot be associated with this stream. This can happen on Canvas,
+	 * which shares DMA channels across MIPI output interafces.
 	 */
 	if (channel->mipi_stream) {
 		dev_warn(&pb->pdev->dev,
@@ -845,26 +845,17 @@ int flush_dma_transfers_ioctl(struct paintbox_data *pb,
 	return 0;
 }
 
-int allocate_dma_channel_ioctl(struct paintbox_data *pb,
-		struct paintbox_session *session, unsigned long arg)
+/* The caller to this function must hold pb->lock */
+int allocate_dma_channel(struct paintbox_data *pb,
+		struct paintbox_session *session, unsigned int channel_id)
 {
-	unsigned int channel_id = (unsigned int)arg;
 	struct paintbox_dma_channel *channel;
-
-	if (channel_id >= pb->dma.num_channels) {
-		dev_err(&pb->pdev->dev, "%s: invalid dma channel id %d\n",
-				__func__, channel_id);
-		return -EINVAL;
-	}
-
-	mutex_lock(&pb->lock);
 
 	channel = &pb->dma.channels[channel_id];
 	if (channel->session) {
 		dev_warn(&pb->pdev->dev,
 				"%s: access error, dma channel id %d\n",
 				__func__, channel_id);
-		mutex_unlock(&pb->lock);
 		return -EACCES;
 	}
 
@@ -881,9 +872,30 @@ int allocate_dma_channel_ioctl(struct paintbox_data *pb,
 	channel->mipi_stream = mipi_handle_dma_channel_allocated(pb, session,
 			channel);
 
+	return 0;
+}
+
+int allocate_dma_channel_ioctl(struct paintbox_data *pb,
+		struct paintbox_session *session, unsigned long arg)
+{
+	int ret;
+	unsigned int channel_id = (unsigned int)arg;
+
+	if (channel_id >= pb->dma.num_channels) {
+		dev_err(&pb->pdev->dev, "%s: invalid dma channel id %d\n",
+				__func__, channel_id);
+		return -EINVAL;
+	}
+
+	mutex_lock(&pb->lock);
+	ret = allocate_dma_channel(pb, session, channel_id);
+	if (ret < 0)
+		dev_err(&pb->pdev->dev,
+				"%s: allocate dma channel id %d error %d\n",
+				__func__, channel_id, ret);
 	mutex_unlock(&pb->lock);
 
-	return 0;
+	return ret;
 }
 
 /* The caller to this function must hold pb->dma.dma_lock and DMA_CHAN_SEL must
@@ -1064,8 +1076,8 @@ int setup_dma_transfer_ioctl(struct paintbox_data *pb,
 #ifdef CONFIG_PAINTBOX_DEBUG
 	if (pb->stats.ioctl_time_enabled) {
 		enq_start = ktime_get_boottime();
-		paintbox_debug_log_non_ioctl_stats(pb, PB_STATS_DMA_SETUP, setup_start,
-				enq_start, 0);
+		paintbox_debug_log_non_ioctl_stats(pb, PB_STATS_DMA_SETUP,
+				setup_start, enq_start, 0);
 	}
 #endif
 
@@ -1094,8 +1106,8 @@ int setup_dma_transfer_ioctl(struct paintbox_data *pb,
 
 #ifdef CONFIG_PAINTBOX_DEBUG
 	if (pb->stats.ioctl_time_enabled)
-		paintbox_debug_log_non_ioctl_stats(pb,  PB_STATS_DMA_ENQ, enq_start,
-				ktime_get_boottime(), 0);
+		paintbox_debug_log_non_ioctl_stats(pb,  PB_STATS_DMA_ENQ,
+				enq_start, ktime_get_boottime(), 0);
 #endif
 
 	if (channel->stats.time_stats_enabled)

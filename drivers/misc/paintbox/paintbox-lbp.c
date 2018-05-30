@@ -281,25 +281,16 @@ static void paintbox_lbp_init_regs(struct paintbox_data *pb,
 	}
 }
 
-int allocate_lbp_ioctl(struct paintbox_data *pb,
-		struct paintbox_session *session, unsigned long arg)
+/* The caller to this function must hold pb->lock */
+int allocate_lbp(struct paintbox_data *pb, struct paintbox_session *session,
+		unsigned int pool_id)
 {
-	unsigned int pool_id = (unsigned int)arg;
 	struct paintbox_lbp *lbp;
-
-	if (pool_id >= pb->lbp.num_lbps) {
-		dev_err(&pb->pdev->dev, "%s: invalid lbp id %d\n", __func__,
-				pool_id);
-		return -EINVAL;
-	}
-
-	mutex_lock(&pb->lock);
 
 	lbp = &pb->lbp.lbps[pool_id];
 	if (lbp->session) {
 		dev_err(&pb->pdev->dev, "%s: access error, lbp id %d\n",
 				__func__, pool_id);
-		mutex_unlock(&pb->lock);
 		return -EACCES;
 	}
 
@@ -328,9 +319,29 @@ int allocate_lbp_ioctl(struct paintbox_data *pb,
 
 	dev_dbg(&pb->pdev->dev, "lbp%u allocated\n", pool_id);
 
+	return 0;
+}
+
+int allocate_lbp_ioctl(struct paintbox_data *pb,
+		struct paintbox_session *session, unsigned long arg)
+{
+	int ret;
+	unsigned int pool_id = (unsigned int)arg;
+
+	if (pool_id >= pb->lbp.num_lbps) {
+		dev_err(&pb->pdev->dev, "%s: invalid lbp id %d\n", __func__,
+				pool_id);
+		return -EINVAL;
+	}
+
+	mutex_lock(&pb->lock);
+	ret = allocate_lbp(pb, session, pool_id);
+	if (ret < 0)
+		dev_err(&pb->pdev->dev, "%s: allocate lbp id %d error %d\n",
+				__func__, pool_id, ret);
 	mutex_unlock(&pb->lock);
 
-	return 0;
+	return ret;
 }
 
 int release_lbp_ioctl(struct paintbox_data *pb,
@@ -918,8 +929,7 @@ int lbp_test_broadcast_write_memory_ioctl(struct paintbox_data *pb,
 	 */
 	mutex_lock(&pb->lock);
 
-	if (pb->session_count != 1 && session->lbp_count != pb->lbp.num_lbps)
-	{
+	if (pb->session_count != 1 && session->lbp_count != pb->lbp.num_lbps) {
 		mutex_unlock(&pb->lock);
 		return -EBUSY;
 	}

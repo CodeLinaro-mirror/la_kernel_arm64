@@ -42,6 +42,8 @@ int validate_interrupt(struct paintbox_data *pb,
 struct paintbox_irq *get_interrupt(struct paintbox_data *pb,
 		struct paintbox_session *session, unsigned int interrupt_id,
 		int *err);
+int allocate_interrupt(struct paintbox_data *pb,
+		struct paintbox_session *session, unsigned int interrupt_id);
 int release_interrupt(struct paintbox_data *pb,
 		struct paintbox_session *session, struct paintbox_irq *irq);
 

@@ -167,25 +167,16 @@ static void set_lbp_access_mask(struct paintbox_data *pb,
 }
 #endif
 
-int allocate_stp_ioctl(struct paintbox_data *pb,
-		struct paintbox_session *session, unsigned long arg)
+/* The caller to this function must hold pb->lock */
+int allocate_stp(struct paintbox_data *pb, struct paintbox_session *session,
+		unsigned int stp_index)
 {
-	unsigned int stp_id = (unsigned int)arg;
-	unsigned int stp_index = stp_id_to_index(stp_id);
 	struct paintbox_stp *stp;
 
-	if (stp_index >= pb->stp.num_stps) {
-		dev_err(&pb->pdev->dev, "%s: invalid stp_id %d\n", __func__,
-				stp_id);
-		return -EINVAL;
-	}
-
-	mutex_lock(&pb->lock);
 	stp = &pb->stp.stps[stp_index];
 	if (stp->session) {
 		dev_err(&pb->pdev->dev, "%s: access error stp_id %d\n",
-				__func__, stp_id);
-		mutex_unlock(&pb->lock);
+				__func__, stp_index_to_id(stp_index));
 		return -EACCES;
 	}
 
@@ -201,6 +192,32 @@ int allocate_stp_ioctl(struct paintbox_data *pb,
 #if CONFIG_PAINTBOX_VERSION_MAJOR >= 1
 	set_lbp_access_mask(pb, session, stp);
 #endif
+	dev_dbg(&pb->pdev->dev, "stp%u allocated\n",
+			stp_index_to_id(stp_index));
+	return 0;
+}
+
+int allocate_stp_ioctl(struct paintbox_data *pb,
+		struct paintbox_session *session, unsigned long arg)
+{
+	int ret;
+	unsigned int stp_id = (unsigned int)arg;
+	unsigned int stp_index = stp_id_to_index(stp_id);
+
+	if (stp_index >= pb->stp.num_stps) {
+		dev_err(&pb->pdev->dev, "%s: invalid stp_id %d\n", __func__,
+				stp_id);
+		return -EINVAL;
+	}
+
+	mutex_lock(&pb->lock);
+	ret = allocate_stp(pb, session, stp_index);
+	if (ret < 0) {
+		dev_err(&pb->pdev->dev, "%s: allocate stp_id %d error %d\n",
+				__func__, stp_index_to_id(stp_index), ret);
+		mutex_unlock(&pb->lock);
+		return ret;
+	}
 
 	/* If this is the first STP core to be powered up then initialize the
 	 * SRAM memory size fields in the pb->stp structure.
@@ -213,7 +230,7 @@ int allocate_stp_ioctl(struct paintbox_data *pb,
 
 		spin_lock_irqsave(&pb->stp.lock, irq_flags);
 
-		paintbox_stp_select(pb, stp->stp_id);
+		paintbox_stp_select(pb, stp_id);
 
 		caps = readq(pb->stp.reg_base + STP_CAP);
 		spin_unlock_irqrestore(&pb->stp.lock, irq_flags);
@@ -233,9 +250,6 @@ int allocate_stp_ioctl(struct paintbox_data *pb,
 				STP_CAP_HALO_MEM_MASK) >>
 				STP_CAP_HALO_MEM_SHIFT);
 	}
-
-	dev_dbg(&pb->pdev->dev, "stp%u allocated\n", stp_id);
-
 	mutex_unlock(&pb->lock);
 
 	return 0;
@@ -418,7 +432,8 @@ int resume_stp_ioctl(struct paintbox_data *pb, struct paintbox_session *session,
 }
 
 /* The caller to this function must hold pb->lock */
-static int paintbox_stp_reset(struct paintbox_data *pb, struct paintbox_stp *stp)
+static int paintbox_stp_reset(struct paintbox_data *pb,
+		struct paintbox_stp *stp)
 {
 	unsigned long irq_flags;
 	uint64_t ctrl;
@@ -588,8 +603,8 @@ int setup_stp_ioctl(struct paintbox_data *pb, struct paintbox_session *session,
 
 	if (config.len > max_len_bytes) {
 		dev_err(&pb->pdev->dev,
-				"%s: stp%u: program too large, %lu > %lu bytes"
-				"\n", __func__, config.processor_id, config.len,
+				"%s: stp%u: program too large, %lu > %lu bytes\n",
+				__func__, config.processor_id, config.len,
 				max_len_bytes);
 		mutex_unlock(&pb->lock);
 		return -ERANGE;

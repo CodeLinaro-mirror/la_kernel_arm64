@@ -54,6 +54,8 @@ int validate_stp(struct paintbox_data *pb, struct paintbox_session *session,
 struct paintbox_stp *get_stp(struct paintbox_data *pb,
 		struct paintbox_session *session, unsigned int stp_id,
 		int *err);
+int allocate_stp(struct paintbox_data *pb,
+		struct paintbox_session *session, unsigned int stp_index);
 void release_stp(struct paintbox_data *pb,
 		struct paintbox_session *session, struct paintbox_stp *stp);
 

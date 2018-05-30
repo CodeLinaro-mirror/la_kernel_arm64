@@ -277,6 +277,7 @@ struct paintbox_irq *get_interrupt(struct paintbox_data *pb,
 		int *err)
 {
 	int ret = validate_interrupt(pb, session, interrupt_id);
+
 	if (ret < 0) {
 		*err = ret;
 		return NULL;
@@ -286,11 +287,30 @@ struct paintbox_irq *get_interrupt(struct paintbox_data *pb,
 	return &pb->irqs[interrupt_id];
 }
 
+/* The caller to this function must hold pb->lock */
+int allocate_interrupt(struct paintbox_data *pb,
+		struct paintbox_session *session, unsigned int interrupt_id)
+{
+	struct paintbox_irq *irq;
+
+	irq = &pb->irqs[interrupt_id];
+	if (irq->session) {
+		dev_err(&pb->pdev->dev, "%s: access error: interrupt_id %d\n",
+				__func__, interrupt_id);
+		return -EACCES;
+	}
+
+	irq->session = session;
+	list_add_tail(&irq->session_entry, &session->irq_list);
+
+	return 0;
+}
+
 int allocate_interrupt_ioctl(struct paintbox_data *pb,
 		struct paintbox_session *session, unsigned long arg)
 {
+	int ret;
 	unsigned int interrupt_id = (unsigned int)arg;
-	struct paintbox_irq *irq;
 
 	if (interrupt_id >= pb->io.num_interrupts) {
 		dev_err(&pb->pdev->dev,
@@ -301,20 +321,14 @@ int allocate_interrupt_ioctl(struct paintbox_data *pb,
 	}
 
 	mutex_lock(&pb->lock);
-	irq = &pb->irqs[interrupt_id];
-	if (irq->session) {
-		dev_err(&pb->pdev->dev, "%s: access error: interrupt_id %d\n",
-				__func__, interrupt_id);
-		mutex_unlock(&pb->lock);
-		return -EACCES;
-	}
-
-	irq->session = session;
-	list_add_tail(&irq->session_entry, &session->irq_list);
-
+	ret = allocate_interrupt(pb, session, interrupt_id);
+	if (ret < 0)
+		dev_err(&pb->pdev->dev,
+				"%s: allocate interrupt_id %d error %d\n",
+				__func__, interrupt_id, ret);
 	mutex_unlock(&pb->lock);
 
-	return 0;
+	return ret;
 }
 
 int paintbox_flush_interrupt_ioctl(struct paintbox_data *pb,
@@ -706,6 +720,7 @@ int wait_for_interrupt_ioctl(struct paintbox_data *pb,
 		} else if (time_remaining < 0) {
 			unsigned long elapsed = jiffies - start;
 			int64_t elapsed_ns = jiffies_to_nsecs(elapsed);
+
 			if (elapsed_ns >= wait->base.timeout_ns)
 				wait->base.timeout_ns = 0;
 			else
@@ -752,8 +767,8 @@ cleanup_and_exit:
 
 #ifdef CONFIG_PAINTBOX_DEBUG
 	if (pb->stats.ioctl_time_enabled)
-		paintbox_debug_log_non_ioctl_stats(pb,  PB_STATS_WAIT_POST, start_time,
-				ktime_get_boottime(), 0);
+		paintbox_debug_log_non_ioctl_stats(pb,  PB_STATS_WAIT_POST,
+				start_time, ktime_get_boottime(), 0);
 #endif
 
 	/* Copy errors take precedence over any other errors. */
@@ -935,7 +950,7 @@ void paintbox_irq_wait_for_release_complete(struct paintbox_data *pb,
 	reinit_completion(&session->release_completion);
 
 	while (!list_empty(&session->wait_list)) {
-		unsigned ret;
+		unsigned int ret;
 
 		spin_unlock_irqrestore(&pb->irq_lock, irq_flags);
 		mutex_unlock(&pb->lock);

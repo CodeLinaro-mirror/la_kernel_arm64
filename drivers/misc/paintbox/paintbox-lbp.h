@@ -48,6 +48,8 @@ struct paintbox_lbp *get_lbp(struct paintbox_data *pb,
 struct paintbox_lb *get_lb(struct paintbox_data *pb,
 		struct paintbox_session *session, unsigned int lbp_id,
 		unsigned int lb_id, int *err);
+int allocate_lbp(struct paintbox_data *pb, struct paintbox_session *session,
+		unsigned int pool_id);
 void release_lbp(struct paintbox_data *pb, struct paintbox_session *session,
 		struct paintbox_lbp *lbp);
 void reset_lb(struct paintbox_data *pb, unsigned int lbp_id,
