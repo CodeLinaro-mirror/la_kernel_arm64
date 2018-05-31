@@ -57,6 +57,9 @@
 #include "paintbox-stp-sim.h"
 #include "paintbox-stp-sram.h"
 
+typedef int (*resource_allocator_t)(struct paintbox_data *,
+		struct paintbox_session *, unsigned int);
+
 static int paintbox_open(struct inode *ip, struct file *fp)
 {
 	struct paintbox_session *session;
@@ -228,6 +231,151 @@ unlock:
 	return ret;
 }
 #endif
+
+/* The caller to this function must hold pb->lock */
+static void paintbox_ipu_bulk_release_resources_internal
+	(struct paintbox_data *pb, struct paintbox_session *session)
+{
+	struct paintbox_stp *stp, *stp_next;
+	struct paintbox_lbp *lbp, *lbp_next;
+	struct paintbox_dma_channel *channel, *channel_next;
+	struct paintbox_irq *irq, *irq_next;
+
+	list_for_each_entry_safe(stp, stp_next, &session->stp_list,
+			session_entry)
+		release_stp(pb, session, stp);
+
+	list_for_each_entry_safe(lbp, lbp_next, &session->lbp_list,
+			session_entry)
+		release_lbp(pb, session, lbp);
+
+	list_for_each_entry_safe(channel, channel_next, &session->dma_list,
+			session_entry)
+		release_dma_channel(pb, session, channel);
+
+	list_for_each_entry_safe(irq, irq_next, &session->irq_list,
+			session_entry)
+		release_interrupt(pb, session, irq);
+}
+
+static int paintbox_ipu_bulk_release_resources_ioctl(struct paintbox_data *pb,
+		struct paintbox_session *session, unsigned long arg)
+{
+	mutex_lock(&pb->lock);
+	paintbox_ipu_bulk_release_resources_internal(pb, session);
+	mutex_unlock(&pb->lock);
+
+	return 0;
+}
+
+/* The caller to this function must hold pb->lock */
+static int allocate_requested_resources(struct paintbox_data *pb,
+		struct paintbox_session *session, uint64_t req_mask,
+		resource_allocator_t allocator)
+{
+	int ret;
+	int index;
+	uint64_t iterator;
+
+	iterator = req_mask;
+	index = 0;
+
+	for (index = 0; iterator > 0; iterator >>= 1, index++) {
+		if (!(iterator & 0x1))
+			continue;
+
+		ret = allocator(pb, session, index);
+		if (ret < 0)
+			return ret;
+	}
+
+	return 0;
+}
+
+static int paintbox_ipu_bulk_allocate_resources_ioctl(struct paintbox_data *pb,
+		struct paintbox_session *session, unsigned long arg)
+{
+	int ret;
+	uint64_t busy_mask;
+	struct ipu_bulk_allocation_request __user *user_req;
+	struct ipu_bulk_allocation_request req;
+
+	user_req = (struct ipu_bulk_allocation_request __user *)arg;
+	if (copy_from_user(&req, user_req, sizeof(req)))
+		return -EFAULT;
+
+	mutex_lock(&pb->lock);
+	/* Check if requested resources are available */
+	busy_mask = req.stp_mask & ~pb->stp.available_stp_mask;
+	if (busy_mask) {
+		dev_warn(&pb->pdev->dev,
+				"%s: Some or all requested STPs are busy, busy mask: 0x%016llx\n",
+				__func__, busy_mask);
+		goto err_resource_contention;
+	}
+
+	busy_mask = req.lbp_mask & ~pb->lbp.available_lbp_mask;
+	if (busy_mask) {
+		dev_warn(&pb->pdev->dev,
+				"%s: Some or all requested LBPs are busy, busy mask: 0x%016llx\n",
+				__func__, busy_mask);
+		goto err_resource_contention;
+	}
+
+	busy_mask = req.dma_channel_mask & ~pb->dma.available_channel_mask;
+	if (busy_mask) {
+		dev_warn(&pb->pdev->dev,
+				"%s: Some or all requested DMA Channels are busy, busy mask: 0x%016llx\n",
+				__func__, busy_mask);
+		goto err_resource_contention;
+	}
+
+	busy_mask = req.irq_mask & ~pb->io.available_irq_mask;
+	if (busy_mask) {
+		dev_warn(&pb->pdev->dev,
+				"%s: Some or all requested Interrupts are busy, busy mask: 0x%016llx\n",
+				__func__, busy_mask);
+		goto err_resource_contention;
+	}
+
+	ret = allocate_requested_resources(pb, session, req.stp_mask,
+			&allocate_stp);
+	if (ret)
+		goto err_alloc;
+
+	ret = allocate_requested_resources(pb, session, req.lbp_mask,
+			&allocate_lbp);
+	if (ret)
+		goto err_alloc;
+
+	ret = allocate_requested_resources(pb, session, req.dma_channel_mask,
+			&allocate_dma_channel);
+	if (ret)
+		goto err_alloc;
+
+	ret = allocate_requested_resources(pb, session, req.irq_mask,
+			&allocate_interrupt);
+	if (ret)
+		goto err_alloc;
+
+	mutex_unlock(&pb->lock);
+
+	return 0;
+
+err_resource_contention:
+	mutex_unlock(&pb->lock);
+	return -EBUSY;
+
+err_alloc:
+	dev_err(&pb->pdev->dev, "%s: bulk resource allocation failed\n",
+			__func__);
+
+	/* Release allocated resources */
+	paintbox_ipu_bulk_release_resources_internal(pb, session);
+
+	mutex_unlock(&pb->lock);
+	return ret;
+}
 
 static long paintbox_ioctl(struct file *fp, unsigned int cmd,
 		unsigned long arg)
@@ -467,6 +615,14 @@ static long paintbox_ioctl(struct file *fp, unsigned int cmd,
 		ret = paintbox_ipu_reset_ioctl(pb, session, arg);
 		break;
 #endif
+	case PB_BULK_ALLOCATE_IPU_RESOURCES:
+		ret = paintbox_ipu_bulk_allocate_resources_ioctl(pb, session,
+				arg);
+		break;
+	case PB_BULK_RELEASE_IPU_RESOURCES:
+		ret = paintbox_ipu_bulk_release_resources_ioctl(pb, session,
+				arg);
+		break;
 	case PB_PMON_ALLOCATE:
 		ret = pmon_allocate_ioctl(pb, session, arg);
 		break;
@@ -548,11 +704,14 @@ static int paintbox_get_capabilities(struct paintbox_data *pb)
 
 	val = readl(pb->reg_base + IPU_CAP);
 	pb->stp.num_stps = val & IPU_CAP_NUM_STP_MASK;
+	pb->stp.available_stp_mask = (1ULL << pb->stp.num_stps) - 1;
 	pb->lbp.num_lbps = (val & IPU_CAP_NUM_LBP_MASK) >>
 		IPU_CAP_NUM_LBP_SHIFT;
+	pb->lbp.available_lbp_mask = (1ULL << pb->lbp.num_lbps) - 1;
 
 	pb->dma.num_channels = readl(pb->dma.dma_base + DMA_CAP0) &
 			DMA_CAP0_MAX_DMA_CHAN_MASK;
+	pb->dma.available_channel_mask = (1ULL << pb->dma.num_channels) - 1;
 
 	val = readl(pb->io_ipu.ipu_base + MPI_CAP);
 	pb->io_ipu.num_mipi_input_streams = (val & MPI_CAP_MAX_STRM_MASK) >>

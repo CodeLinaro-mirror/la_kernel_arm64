@@ -204,6 +204,7 @@ struct paintbox_io {
 	unsigned int irq_activations;
 	int irq;
 	unsigned int num_interrupts;
+	uint64_t available_irq_mask;
 
 	/* io_lock is used to protect the interrupt control registers */
 	spinlock_t io_lock;
@@ -481,6 +482,7 @@ struct paintbox_dma {
 #endif
 	struct paintbox_dma_channel *channels;
 	unsigned int num_channels;
+	uint64_t available_channel_mask;
 	void __iomem *dma_base;
 	struct dentry *bif_outstanding_dentry;
 	unsigned int bif_outstanding;
@@ -561,6 +563,7 @@ struct paintbox_stp_common {
 	unsigned int vector_mem_size_in_words;
 	unsigned int halo_mem_size_in_words;
 	unsigned int selected_stp_id;
+	uint64_t available_stp_mask;
 	bool caps_inited;
 
 	/* The stp lock is used to protect access to the STP registers between
@@ -637,6 +640,7 @@ struct paintbox_lbp_common {
 	uint32_t max_lbs;
 	uint32_t max_rptrs;
 	uint32_t max_channels;
+	uint64_t available_lbp_mask;
 };
 
 struct paintbox_data {

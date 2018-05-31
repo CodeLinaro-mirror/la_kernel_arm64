@@ -192,8 +192,42 @@ int allocate_stp(struct paintbox_data *pb, struct paintbox_session *session,
 #if CONFIG_PAINTBOX_VERSION_MAJOR >= 1
 	set_lbp_access_mask(pb, session, stp);
 #endif
+	pb->stp.available_stp_mask &= ~(1ULL << stp_index);
 	dev_dbg(&pb->pdev->dev, "stp%u allocated\n",
 			stp_index_to_id(stp_index));
+
+	/* If this is the first STP core to be powered up then initialize the
+	 * SRAM memory size fields in the pb->stp structure.
+	 */
+	if (!pb->stp.caps_inited) {
+		unsigned long irq_flags;
+		uint64_t caps;
+
+		pb->stp.caps_inited = true;
+
+		spin_lock_irqsave(&pb->stp.lock, irq_flags);
+
+		paintbox_stp_select(pb, stp_index_to_id(stp_index));
+
+		caps = readq(pb->stp.reg_base + STP_CAP);
+		spin_unlock_irqrestore(&pb->stp.lock, irq_flags);
+
+		pb->stp.inst_mem_size_in_instructions = (unsigned int)(caps &
+				STP_CAP_INST_MEM_MASK);
+		pb->stp.scalar_mem_size_in_words = (unsigned int)((caps &
+					STP_CAP_SCALAR_MEM_MASK) >>
+				STP_CAP_SCALAR_MEM_SHIFT);
+		pb->stp.const_mem_size_in_words = (unsigned int)((caps &
+					STP_CAP_CONST_MEM_MASK) >>
+				STP_CAP_CONST_MEM_SHIFT);
+		pb->stp.vector_mem_size_in_words = (unsigned int)((caps &
+					STP_CAP_VECTOR_MEM_MASK) >>
+				STP_CAP_VECTOR_MEM_SHIFT);
+		pb->stp.halo_mem_size_in_words = (unsigned int)((caps &
+					STP_CAP_HALO_MEM_MASK) >>
+				STP_CAP_HALO_MEM_SHIFT);
+	}
+
 	return 0;
 }
 
@@ -219,37 +253,6 @@ int allocate_stp_ioctl(struct paintbox_data *pb,
 		return ret;
 	}
 
-	/* If this is the first STP core to be powered up then initialize the
-	 * SRAM memory size fields in the pb->stp structure.
-	 */
-	if (!pb->stp.caps_inited) {
-		unsigned long irq_flags;
-		uint64_t caps;
-
-		pb->stp.caps_inited = true;
-
-		spin_lock_irqsave(&pb->stp.lock, irq_flags);
-
-		paintbox_stp_select(pb, stp_id);
-
-		caps = readq(pb->stp.reg_base + STP_CAP);
-		spin_unlock_irqrestore(&pb->stp.lock, irq_flags);
-
-		pb->stp.inst_mem_size_in_instructions = (unsigned int)(caps &
-				STP_CAP_INST_MEM_MASK);
-		pb->stp.scalar_mem_size_in_words = (unsigned int)((caps &
-				STP_CAP_SCALAR_MEM_MASK) >>
-				STP_CAP_SCALAR_MEM_SHIFT);
-		pb->stp.const_mem_size_in_words = (unsigned int)((caps &
-				STP_CAP_CONST_MEM_MASK) >>
-				STP_CAP_CONST_MEM_SHIFT);
-		pb->stp.vector_mem_size_in_words = (unsigned int)((caps &
-				STP_CAP_VECTOR_MEM_MASK) >>
-				STP_CAP_VECTOR_MEM_SHIFT);
-		pb->stp.halo_mem_size_in_words = (unsigned int)((caps &
-				STP_CAP_HALO_MEM_MASK) >>
-				STP_CAP_HALO_MEM_SHIFT);
-	}
 	mutex_unlock(&pb->lock);
 
 	return 0;
@@ -292,6 +295,7 @@ void release_stp(struct paintbox_data *pb, struct paintbox_session *session,
 		session->stp_count = 0;
 
 	stp->session = NULL;
+	pb->stp.available_stp_mask |= 1ULL << stp_index;
 }
 
 int release_stp_ioctl(struct paintbox_data *pb,

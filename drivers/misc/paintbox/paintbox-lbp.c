@@ -250,6 +250,7 @@ void release_lbp(struct paintbox_data *pb, struct paintbox_session *session,
 		session->lbp_count = 0;
 #endif
 	lbp->session = NULL;
+	pb->lbp.available_lbp_mask |= 1ULL << lbp->pool_id;
 }
 
 /* The caller to this function must hold pb->lock */
@@ -316,7 +317,7 @@ int allocate_lbp(struct paintbox_data *pb, struct paintbox_session *session,
 	/* Grant access to all STPs in this session. */
 	enable_stp_access_to_lbp(pb, session, lbp);
 #endif
-
+	pb->lbp.available_lbp_mask &= ~(1ULL << pool_id);
 	dev_dbg(&pb->pdev->dev, "lbp%u allocated\n", pool_id);
 
 	return 0;

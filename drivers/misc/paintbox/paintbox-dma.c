@@ -689,6 +689,7 @@ void release_dma_channel(struct paintbox_data *pb,
 	list_del(&channel->session_entry);
 
 	channel->session = NULL;
+	pb->dma.available_channel_mask |= 1ULL << channel->channel_id;
 
 	spin_lock_irqsave(&pb->dma.dma_lock, irq_flags);
 
@@ -871,6 +872,7 @@ int allocate_dma_channel(struct paintbox_data *pb,
 	 */
 	channel->mipi_stream = mipi_handle_dma_channel_allocated(pb, session,
 			channel);
+	pb->dma.available_channel_mask &= ~(1ULL << channel_id);
 
 	return 0;
 }

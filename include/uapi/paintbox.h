@@ -367,6 +367,13 @@ struct sram_vector_coordinate_read {
 	bool read_alu_registers;
 };
 
+struct ipu_bulk_allocation_request {
+	uint64_t stp_mask;
+	uint64_t lbp_mask;
+	uint64_t dma_channel_mask;
+	uint64_t irq_mask;
+};
+
 enum pmon_block_type {
 	PMON_BLOCK_BIF = 0,
 	PMON_BLOCK_MMU = 1,
@@ -708,7 +715,12 @@ struct mipi_input_wait_for_quiescence {
  */
 #define PB_RESET_IPU                   _IO('p', 82)
 
-#define PB_NUM_IOCTLS 83
+/* Bulk resource allocation */
+#define PB_BULK_ALLOCATE_IPU_RESOURCES	_IOW('p', 83, \
+		struct ipu_bulk_allocation_request)
+#define PB_BULK_RELEASE_IPU_RESOURCES	_IOW('p', 84, unsigned int)
+
+#define PB_NUM_IOCTLS 85
 
 /* Test ioctls
  * The following ioctls are for testing and are not to be used for normal
