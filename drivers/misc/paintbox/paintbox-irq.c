@@ -302,7 +302,7 @@ int allocate_interrupt(struct paintbox_data *pb,
 
 	irq->session = session;
 	list_add_tail(&irq->session_entry, &session->irq_list);
-	pb->io.available_irq_mask &= ~(1ULL << interrupt_id);
+	pb->io.available_interrupt_mask &= ~(1ULL << interrupt_id);
 
 	return 0;
 }
@@ -861,7 +861,7 @@ int release_interrupt(struct paintbox_data *pb,
 	list_del(&irq->session_entry);
 	irq->session = NULL;
 	irq->source = IRQ_SRC_NONE;
-	pb->io.available_irq_mask |= 1ULL << irq->interrupt_id;
+	pb->io.available_interrupt_mask |= 1ULL << irq->interrupt_id;
 
 	return 0;
 }
@@ -881,6 +881,7 @@ int release_interrupt_ioctl(struct paintbox_data *pb,
 	}
 
 	ret = release_interrupt(pb, session, irq);
+	signal_completion_on_first_alloc_waiter(pb);
 
 	mutex_unlock(&pb->lock);
 

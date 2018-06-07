@@ -798,6 +798,7 @@ int release_dma_channel_ioctl(struct paintbox_data *pb,
 	unbind_dma_interrupt(pb, session, channel);
 
 	release_dma_channel(pb, session, channel);
+	signal_completion_on_first_alloc_waiter(pb);
 
 	mutex_unlock(&pb->lock);
 

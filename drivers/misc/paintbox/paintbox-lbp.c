@@ -354,8 +354,10 @@ int release_lbp_ioctl(struct paintbox_data *pb,
 
 	mutex_lock(&pb->lock);
 	lbp = get_lbp(pb, session, pool_id, &ret);
-	if (!ret)
+	if (ret == 0) {
 		release_lbp(pb, session, lbp);
+		signal_completion_on_first_alloc_waiter(pb);
+	}
 	mutex_unlock(&pb->lock);
 
 	return ret;

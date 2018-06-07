@@ -452,7 +452,7 @@ int paintbox_io_apb_init(struct paintbox_data *pb)
 		pb->io.num_interrupts += pb->io_ipu.num_mipi_output_streams;
 	}
 
-	pb->io.available_irq_mask = (1ULL << pb->io.num_interrupts) - 1;
+	pb->io.available_interrupt_mask = (1ULL << pb->io.num_interrupts) - 1;
 
 	ret = devm_request_irq(&pb->pdev->dev, pb->io.irq,
 			paintbox_io_interrupt, IRQF_SHARED, pb->pdev->name, pb);

@@ -89,6 +89,7 @@ static int paintbox_open(struct inode *ip, struct file *fp)
 	INIT_LIST_HEAD(&session->mipi_output_list);
 	INIT_LIST_HEAD(&session->wait_list);
 
+	init_completion(&session->bulk_alloc_completion);
 	init_completion(&session->release_completion);
 
 	fp->private_data = session;
@@ -105,6 +106,36 @@ static int paintbox_open(struct inode *ip, struct file *fp)
 				ktime_get_boottime(), 0);
 #endif
 	return 0;
+}
+
+/* The caller to this function must hold pb lock */
+void signal_completion_on_first_alloc_waiter(struct paintbox_data *pb)
+{
+	struct paintbox_session *first_entry;
+
+	if (list_empty(&pb->bulk_alloc_waiting_list))
+		return;
+
+	first_entry = list_first_entry(&pb->bulk_alloc_waiting_list,
+			struct paintbox_session, alloc_wait_list_entry);
+
+	complete(&first_entry->bulk_alloc_completion);
+}
+
+/* The caller to this function must hold pb lock */
+static void remove_session_from_alloc_wait_list(
+		struct paintbox_session *session)
+{
+	if (!session->waiting_alloc)
+		return;
+
+	list_del(&session->alloc_wait_list_entry);
+	session->waiting_alloc = false;
+
+	/* Signal completion on first entry to avoid
+	 * starvation.
+	 */
+	signal_completion_on_first_alloc_waiter(session->dev);
 }
 
 static int paintbox_release(struct inode *ip, struct file *fp)
@@ -135,6 +166,8 @@ static int paintbox_release(struct inode *ip, struct file *fp)
 	paintbox_lbp_release(pb, session);
 
 	paintbox_irq_wait_for_release_complete(pb, session);
+
+	remove_session_from_alloc_wait_list(session);
 
 	/* free any pmon allocations */
 	if (pb->bif.pmon_session == session)
@@ -236,26 +269,16 @@ unlock:
 static void paintbox_ipu_bulk_release_resources_internal
 	(struct paintbox_data *pb, struct paintbox_session *session)
 {
-	struct paintbox_stp *stp, *stp_next;
-	struct paintbox_lbp *lbp, *lbp_next;
-	struct paintbox_dma_channel *channel, *channel_next;
 	struct paintbox_irq *irq, *irq_next;
 
-	list_for_each_entry_safe(stp, stp_next, &session->stp_list,
-			session_entry)
-		release_stp(pb, session, stp);
-
-	list_for_each_entry_safe(lbp, lbp_next, &session->lbp_list,
-			session_entry)
-		release_lbp(pb, session, lbp);
-
-	list_for_each_entry_safe(channel, channel_next, &session->dma_list,
-			session_entry)
-		release_dma_channel(pb, session, channel);
-
+	paintbox_stp_release(pb, session);
+	paintbox_lbp_release(pb, session);
+	paintbox_dma_release(pb, session);
+	/* Disable any interrupts associated with the session */
 	list_for_each_entry_safe(irq, irq_next, &session->irq_list,
 			session_entry)
 		release_interrupt(pb, session, irq);
+	paintbox_irq_wait_for_release_complete(pb, session);
 }
 
 static int paintbox_ipu_bulk_release_resources_ioctl(struct paintbox_data *pb,
@@ -263,13 +286,14 @@ static int paintbox_ipu_bulk_release_resources_ioctl(struct paintbox_data *pb,
 {
 	mutex_lock(&pb->lock);
 	paintbox_ipu_bulk_release_resources_internal(pb, session);
+	signal_completion_on_first_alloc_waiter(pb);
 	mutex_unlock(&pb->lock);
 
 	return 0;
 }
 
 /* The caller to this function must hold pb->lock */
-static int allocate_requested_resources(struct paintbox_data *pb,
+static int allocate_requested_resources_internal(struct paintbox_data *pb,
 		struct paintbox_session *session, uint64_t req_mask,
 		resource_allocator_t allocator)
 {
@@ -292,26 +316,86 @@ static int allocate_requested_resources(struct paintbox_data *pb,
 	return 0;
 }
 
-static int paintbox_ipu_bulk_allocate_resources_ioctl(struct paintbox_data *pb,
-		struct paintbox_session *session, unsigned long arg)
+/* The caller to this function must hold pb->lock
+ * The caller need to release resource on failure (non-zero return)
+ */
+static int allocate_requested_resources(struct paintbox_data *pb,
+		struct paintbox_session *session,
+		struct ipu_bulk_allocation_request req)
 {
 	int ret;
+
+	ret = allocate_requested_resources_internal(pb, session, req.stp_mask,
+			&allocate_stp);
+	if (ret)
+		return ret;
+
+	ret = allocate_requested_resources_internal(pb, session, req.lbp_mask,
+			&allocate_lbp);
+	if (ret)
+		return ret;
+
+	ret = allocate_requested_resources_internal(pb, session,
+			req.dma_channel_mask, &allocate_dma_channel);
+	if (ret)
+		return ret;
+
+	ret = allocate_requested_resources_internal(pb, session,
+			req.interrupt_mask, &allocate_interrupt);
+	if (ret)
+		return ret;
+
+	return 0;
+}
+
+static int validate_request_resource_mask(struct paintbox_data *pb,
+		struct ipu_bulk_allocation_request req)
+{
+	if (req.stp_mask >> pb->stp.num_stps) {
+		dev_warn(&pb->pdev->dev, "%s: STP request invalid\n",
+				__func__);
+		goto err_val;
+	}
+
+	if (req.lbp_mask >> pb->lbp.num_lbps) {
+		dev_warn(&pb->pdev->dev, "%s: LBP request invalid\n",
+				__func__);
+		goto err_val;
+	}
+
+	if (req.dma_channel_mask >> pb->dma.num_channels) {
+		dev_warn(&pb->pdev->dev, "%s: DMA request invalid\n",
+				__func__);
+		goto err_val;
+	}
+
+	if (req.interrupt_mask >> pb->io.num_interrupts) {
+		dev_warn(&pb->pdev->dev, "%s: IRQ request invalid\n",
+				__func__);
+		goto err_val;
+	}
+
+	return 0;
+
+err_val:
+	mutex_unlock(&pb->lock);
+	return -EINVAL;
+}
+
+
+/* The caller to this function must hold pb lock */
+static bool check_requested_resource_availability(struct paintbox_data *pb,
+		struct ipu_bulk_allocation_request req)
+{
 	uint64_t busy_mask;
-	struct ipu_bulk_allocation_request __user *user_req;
-	struct ipu_bulk_allocation_request req;
+	bool is_available = true;
 
-	user_req = (struct ipu_bulk_allocation_request __user *)arg;
-	if (copy_from_user(&req, user_req, sizeof(req)))
-		return -EFAULT;
-
-	mutex_lock(&pb->lock);
-	/* Check if requested resources are available */
 	busy_mask = req.stp_mask & ~pb->stp.available_stp_mask;
 	if (busy_mask) {
 		dev_warn(&pb->pdev->dev,
 				"%s: Some or all requested STPs are busy, busy mask: 0x%016llx\n",
 				__func__, busy_mask);
-		goto err_resource_contention;
+		is_available = false;
 	}
 
 	busy_mask = req.lbp_mask & ~pb->lbp.available_lbp_mask;
@@ -319,7 +403,7 @@ static int paintbox_ipu_bulk_allocate_resources_ioctl(struct paintbox_data *pb,
 		dev_warn(&pb->pdev->dev,
 				"%s: Some or all requested LBPs are busy, busy mask: 0x%016llx\n",
 				__func__, busy_mask);
-		goto err_resource_contention;
+		is_available = false;
 	}
 
 	busy_mask = req.dma_channel_mask & ~pb->dma.available_channel_mask;
@@ -327,52 +411,107 @@ static int paintbox_ipu_bulk_allocate_resources_ioctl(struct paintbox_data *pb,
 		dev_warn(&pb->pdev->dev,
 				"%s: Some or all requested DMA Channels are busy, busy mask: 0x%016llx\n",
 				__func__, busy_mask);
-		goto err_resource_contention;
+		is_available = false;
 	}
 
-	busy_mask = req.irq_mask & ~pb->io.available_irq_mask;
+	busy_mask = req.interrupt_mask & ~pb->io.available_interrupt_mask;
 	if (busy_mask) {
 		dev_warn(&pb->pdev->dev,
 				"%s: Some or all requested Interrupts are busy, busy mask: 0x%016llx\n",
 				__func__, busy_mask);
-		goto err_resource_contention;
+		is_available = false;
 	}
 
-	ret = allocate_requested_resources(pb, session, req.stp_mask,
-			&allocate_stp);
-	if (ret)
-		goto err_alloc;
+	return is_available;
+}
 
-	ret = allocate_requested_resources(pb, session, req.lbp_mask,
-			&allocate_lbp);
-	if (ret)
-		goto err_alloc;
+static int paintbox_ipu_bulk_allocate_resources_ioctl(struct paintbox_data *pb,
+		struct paintbox_session *session, unsigned long arg)
+{
+	int ret;
+	struct ipu_bulk_allocation_request __user *user_req;
+	struct ipu_bulk_allocation_request req;
+	long time_remaining = LONG_MAX;
+	uint64_t timeout_remaining_ns;
 
-	ret = allocate_requested_resources(pb, session, req.dma_channel_mask,
-			&allocate_dma_channel);
-	if (ret)
-		goto err_alloc;
+	user_req = (struct ipu_bulk_allocation_request __user *)arg;
+	if (copy_from_user(&req, user_req, sizeof(req)))
+		return -EFAULT;
 
-	ret = allocate_requested_resources(pb, session, req.irq_mask,
-			&allocate_interrupt);
-	if (ret)
-		goto err_alloc;
+	ret = validate_request_resource_mask(pb, req);
+	if (ret < 0)
+		return ret;
+
+	timeout_remaining_ns = req.timeout_ns;
+
+	mutex_lock(&pb->lock);
+	do {
+		/* If requested resources are available, skip to allocation */
+		if (check_requested_resource_availability(pb, req)) {
+			remove_session_from_alloc_wait_list(session);
+			break;
+		}
+
+		/* If caller indicates no timeout, return */
+		if (req.timeout_ns == 0) {
+			ret = -EBUSY;
+			goto err_exit;
+		}
+
+		/* When resource are not available, wait */
+		if (!session->waiting_alloc) {
+			list_add_tail(&session->alloc_wait_list_entry,
+					&pb->bulk_alloc_waiting_list);
+			session->waiting_alloc = true;
+		}
+
+		reinit_completion(&session->bulk_alloc_completion);
+		mutex_unlock(&pb->lock);
+
+		if (timeout_remaining_ns == LONG_MAX) {
+			ret = wait_for_completion_interruptible
+				(&session->bulk_alloc_completion);
+			if (ret) {
+				mutex_lock(&pb->lock);
+				goto err_exit;
+			}
+			time_remaining = LONG_MAX;
+		} else {
+			time_remaining =
+				wait_for_completion_interruptible_timeout
+				(&session->bulk_alloc_completion,
+				 nsecs_to_jiffies64(timeout_remaining_ns));
+
+			if (time_remaining > 0)
+				timeout_remaining_ns =
+					jiffies_to_nsecs(time_remaining);
+		}
+		mutex_lock(&pb->lock);
+	} while (time_remaining > 0);
+
+	if (time_remaining == 0) {
+		ret = -ETIMEDOUT;
+		goto err_exit;
+	} else if (time_remaining < 0) {
+		ret = time_remaining;
+		goto err_exit;
+	}
+
+	ret = allocate_requested_resources(pb, session, req);
+	if (ret < 0) {
+		dev_err(&pb->pdev->dev, "%s: bulk resource allocation failed\n",
+				__func__);
+
+		/* Release allocated resources */
+		paintbox_ipu_bulk_release_resources_internal(pb, session);
+	}
 
 	mutex_unlock(&pb->lock);
 
-	return 0;
+	return ret;
 
-err_resource_contention:
-	mutex_unlock(&pb->lock);
-	return -EBUSY;
-
-err_alloc:
-	dev_err(&pb->pdev->dev, "%s: bulk resource allocation failed\n",
-			__func__);
-
-	/* Release allocated resources */
-	paintbox_ipu_bulk_release_resources_internal(pb, session);
-
+err_exit:
+	remove_session_from_alloc_wait_list(session);
 	mutex_unlock(&pb->lock);
 	return ret;
 }
@@ -868,6 +1007,8 @@ static int paintbox_probe(struct platform_device *pdev)
 	pb->misc_device.minor = MISC_DYNAMIC_MINOR,
 	pb->misc_device.name  = "paintbox",
 	pb->misc_device.fops  = &paintbox_fops,
+
+	INIT_LIST_HEAD(&pb->bulk_alloc_waiting_list);
 
 	ret = misc_register(&pb->misc_device);
 	if (ret) {

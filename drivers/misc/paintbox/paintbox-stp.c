@@ -307,8 +307,10 @@ int release_stp_ioctl(struct paintbox_data *pb,
 
 	mutex_lock(&pb->lock);
 	stp = get_stp(pb, session, stp_id, &ret);
-	if (!ret)
+	if (ret == 0) {
 		release_stp(pb, session, stp);
+		signal_completion_on_first_alloc_waiter(pb);
+	}
 	mutex_unlock(&pb->lock);
 
 	return ret;

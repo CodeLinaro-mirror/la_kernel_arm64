@@ -371,7 +371,8 @@ struct ipu_bulk_allocation_request {
 	uint64_t stp_mask;
 	uint64_t lbp_mask;
 	uint64_t dma_channel_mask;
-	uint64_t irq_mask;
+	uint64_t interrupt_mask;
+	uint64_t timeout_ns;
 };
 
 enum pmon_block_type {

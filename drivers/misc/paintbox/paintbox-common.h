@@ -73,6 +73,13 @@ struct paintbox_session {
 	struct list_head mipi_output_list;
 	struct list_head wait_list;
 
+	/* bulk allocation fields
+	 * The fields below are protected by pb->irq_lock
+	 */
+	struct list_head alloc_wait_list_entry;
+	bool waiting_alloc;
+	struct completion bulk_alloc_completion;
+
 	/* The fields below are protected by pb->irq_lock */
 	struct completion release_completion;
 	bool releasing;
@@ -204,7 +211,7 @@ struct paintbox_io {
 	unsigned int irq_activations;
 	int irq;
 	unsigned int num_interrupts;
-	uint64_t available_irq_mask;
+	uint64_t available_interrupt_mask;
 
 	/* io_lock is used to protect the interrupt control registers */
 	spinlock_t io_lock;
@@ -674,6 +681,8 @@ struct paintbox_data {
 	struct task_struct *perf_thread;
 	int session_count;
 
+	struct list_head bulk_alloc_waiting_list;
+
 #ifdef CONFIG_PAINTBOX_DEBUG
 	struct dentry *debug_root;
 	struct dentry *regs_dentry;
@@ -689,5 +698,8 @@ struct paintbox_data {
 	} stats;
 #endif
 };
+
+/* The caller to this function must hold pb lock */
+void signal_completion_on_first_alloc_waiter(struct paintbox_data *pb);
 
 #endif /* __PAINTBOX_COMMON_H__ */
