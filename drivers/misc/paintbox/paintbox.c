@@ -60,6 +60,8 @@
 typedef int (*resource_allocator_t)(struct paintbox_data *,
 		struct paintbox_session *, unsigned int);
 
+static long paintbox_ipu_reset(struct paintbox_data *pb);
+
 static int paintbox_open(struct inode *ip, struct file *fp)
 {
 	struct paintbox_session *session;
@@ -182,6 +184,11 @@ static int paintbox_release(struct inode *ip, struct file *fp)
 	if (WARN_ON(--pb->session_count < 0))
 		pb->session_count = 0;
 
+#ifdef CONFIG_MNH_THERMAL
+	if (pb->session_count == 0)
+		paintbox_ipu_reset(pb);
+#endif
+
 	mutex_unlock(&pb->lock);
 
 	kfree(session);
@@ -233,19 +240,14 @@ static long paintbox_get_caps_ioctl(struct paintbox_data *pb,
 }
 
 #ifdef CONFIG_MNH_THERMAL
-static long paintbox_ipu_reset_ioctl(struct paintbox_data *pb,
-		struct paintbox_session *session, unsigned long arg)
+/* The caller to this function must hold pb lock */
+static long paintbox_ipu_reset(struct paintbox_data *pb)
 {
-	int ret;
-
-	mutex_lock(&pb->lock);
-
 	if (pb->session_count > 1) {
 		dev_warn(&pb->pdev->dev,
 				"%s: ignoring reset request: multiple active sessions\n",
 				__func__);
-		ret = -EBUSY;
-		goto unlock;
+		return -EBUSY;
 	}
 
 	paintbox_io_disable_interrupt(pb, ~0ULL);
@@ -257,8 +259,17 @@ static long paintbox_ipu_reset_ioctl(struct paintbox_data *pb,
 	paintbox_mipi_post_ipu_reset(pb);
 	/* TODO(showarth): mmu post ipu reset */
 	paintbox_stp_post_ipu_reset(pb);
-	ret = 0;
-unlock:
+
+	return 0;
+}
+
+static long paintbox_ipu_reset_ioctl(struct paintbox_data *pb,
+		struct paintbox_session *session, unsigned long arg)
+{
+	int ret;
+
+	mutex_lock(&pb->lock);
+	ret = paintbox_ipu_reset(pb);
 	mutex_unlock(&pb->lock);
 
 	return ret;
