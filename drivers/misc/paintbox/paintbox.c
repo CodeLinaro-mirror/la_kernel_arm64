@@ -128,12 +128,10 @@ void signal_completion_on_first_alloc_waiter(struct paintbox_data *pb)
 static void remove_session_from_alloc_wait_list(
 		struct paintbox_session *session)
 {
-	if (!session->waiting_alloc)
-		return;
-
-	list_del(&session->alloc_wait_list_entry);
-	session->waiting_alloc = false;
-
+	if (session->waiting_alloc) {
+		list_del(&session->alloc_wait_list_entry);
+		session->waiting_alloc = false;
+	}
 	/* Signal completion on first entry to avoid
 	 * starvation.
 	 */
@@ -444,6 +442,7 @@ static int paintbox_ipu_bulk_allocate_resources_ioctl(struct paintbox_data *pb,
 	struct ipu_bulk_allocation_request req;
 	long time_remaining = LONG_MAX;
 	uint64_t timeout_remaining_ns;
+	bool available = false;
 
 	user_req = (struct ipu_bulk_allocation_request __user *)arg;
 	if (copy_from_user(&req, user_req, sizeof(req)))
@@ -457,23 +456,29 @@ static int paintbox_ipu_bulk_allocate_resources_ioctl(struct paintbox_data *pb,
 
 	mutex_lock(&pb->lock);
 	do {
-		/* If requested resources are available, skip to allocation */
-		if (check_requested_resource_availability(pb, req)) {
-			remove_session_from_alloc_wait_list(session);
-			break;
-		}
+		struct paintbox_session *first_entry;
 
-		/* If caller indicates no timeout, return */
-		if (req.timeout_ns == 0) {
-			ret = -EBUSY;
-			goto err_exit;
-		}
-
-		/* When resource are not available, wait */
+		/* Adding session to the end of waiting list */
 		if (!session->waiting_alloc) {
 			list_add_tail(&session->alloc_wait_list_entry,
 					&pb->bulk_alloc_waiting_list);
 			session->waiting_alloc = true;
+		}
+
+		first_entry = list_first_entry(&pb->bulk_alloc_waiting_list,
+				struct paintbox_session, alloc_wait_list_entry);
+
+		if (first_entry == session) {
+			available = check_requested_resource_availability(pb,
+					req);
+
+			/* If requested resources are available, skip to
+			 * allocation
+			 */
+			if (available) {
+				remove_session_from_alloc_wait_list(session);
+				break;
+			}
 		}
 
 		reinit_completion(&session->bulk_alloc_completion);
@@ -500,7 +505,7 @@ static int paintbox_ipu_bulk_allocate_resources_ioctl(struct paintbox_data *pb,
 		mutex_lock(&pb->lock);
 	} while (time_remaining > 0);
 
-	if (time_remaining == 0) {
+	if (time_remaining == 0 && !available) {
 		ret = -ETIMEDOUT;
 		goto err_exit;
 	} else if (time_remaining < 0) {
