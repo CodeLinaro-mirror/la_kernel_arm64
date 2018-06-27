@@ -363,34 +363,29 @@ static int validate_request_resource_mask(struct paintbox_data *pb,
 	if (req.stp_mask >> pb->stp.num_stps) {
 		dev_warn(&pb->pdev->dev, "%s: STP request invalid\n",
 				__func__);
-		goto err_val;
+		return -EINVAL;
 	}
 
 	if (req.lbp_mask >> pb->lbp.num_lbps) {
 		dev_warn(&pb->pdev->dev, "%s: LBP request invalid\n",
 				__func__);
-		goto err_val;
+		return -EINVAL;
 	}
 
 	if (req.dma_channel_mask >> pb->dma.num_channels) {
 		dev_warn(&pb->pdev->dev, "%s: DMA request invalid\n",
 				__func__);
-		goto err_val;
+		return -EINVAL;
 	}
 
 	if (req.interrupt_mask >> pb->io.num_interrupts) {
 		dev_warn(&pb->pdev->dev, "%s: IRQ request invalid\n",
 				__func__);
-		goto err_val;
+		return -EINVAL;
 	}
 
 	return 0;
-
-err_val:
-	mutex_unlock(&pb->lock);
-	return -EINVAL;
 }
-
 
 /* The caller to this function must hold pb lock */
 static bool check_requested_resource_availability(struct paintbox_data *pb,
