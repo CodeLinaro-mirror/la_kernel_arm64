@@ -137,7 +137,7 @@ static int pcie_config_write(uint64_t address, uint32_t data)
 #endif
 
 #ifdef CONFIG_MNH_PCIE_BOOT_TRACE
-spinlock_t trace_lock;
+DEFINE_SPINLOCK(trace_lock);
 static void *mnh_scu_base;
 
 /* Read back trace log from SCU scratch register */
