@@ -965,19 +965,21 @@ void easelcomm_cmd_channel_data_handler(void)
 			saved_cmd_len >
 			EASELCOMM_CMD_CHANNEL_LOCAL_SIZE) {
 			dev_err(easelcomm_miscdev.this_device,
-				"command channel corruption detected: seq=%llu svc=%u cmd=%u len=%u off=%lx\n",
+				"cmdchan corruption (cmd too long): seq=%llu svc=%u cmd=%u len=%u off=%lx, prod_next=%llu\n",
 				cmdhdr->sequence_nbr, cmdhdr->service_id,
 				cmdhdr->command_code, saved_cmd_len,
-				channel->readp - channel->buffer);
+				channel->readp - channel->buffer,
+				channel_buf_hdr->producer_seqnbr_next);
 			break;
 		}
 
 		if (cmdhdr->sequence_nbr !=
 			channel->consumer_seqnbr_next) {
 			dev_err(easelcomm_miscdev.this_device,
-				"command channel corruption detected: expected seq# %llu, got %llu\n",
+				"cmdchan corruption (seq mismatch): expected seq# %llu, got %llu, prod_next=%llu\n",
 				channel->consumer_seqnbr_next,
-				cmdhdr->sequence_nbr);
+				cmdhdr->sequence_nbr,
+				channel_buf_hdr->producer_seqnbr_next);
 			break;
 		}
 
@@ -987,9 +989,10 @@ void easelcomm_cmd_channel_data_handler(void)
 		/* Post-process double check */
 		if (saved_cmd_len != cmdhdr->command_arg_len) {
 			dev_err(easelcomm_miscdev.this_device,
-				"command channel corruption detected: off=%lx expected len %u got %u\n",
+				"cmdchan corruption (length mismatch): off=%lx expected len %u got %u, prod_next=%llu\n",
 				channel->readp - channel->buffer,
-				saved_cmd_len, cmdhdr->command_arg_len);
+				saved_cmd_len, cmdhdr->command_arg_len,
+				channel_buf_hdr->producer_seqnbr_next);
 			break;
 		}
 

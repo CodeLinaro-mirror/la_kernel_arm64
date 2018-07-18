@@ -213,12 +213,12 @@ static int easelcomm_hw_ep_pm_callback(enum mnh_ep_pm_event_t event,
 		pr_info("easelcomm: mnh ep did suspend; no-op\n");
 		break;
 	case MNH_EP_WILL_RESUME:
-		pr_info("easelcomm: mnh ep will resume; no-op\n");
-		break;
-	case MNH_EP_DID_RESUME:
-		pr_info("easelcomm: mnh ep did resume; initialize cmdchan\n");
+		pr_info("easelcomm: mnh ep will resume; initialize cmdchan\n");
 		ret = easelcomm_init_pcie_ready(local_cmdchan_cpu_addr);
 		WARN_ON(ret);
+		break;
+	case MNH_EP_DID_RESUME:
+		pr_info("easelcomm: mnh ep did resume; no-op\n");
 		break;
 	default:
 		pr_err("easelcomm: unknown mnh ep hotplug type %d\n", event);
