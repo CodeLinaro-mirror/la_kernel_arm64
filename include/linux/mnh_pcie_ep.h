@@ -17,12 +17,11 @@
  * @version 1.0
  */
 
+#include <linux/list.h>
 #include <linux/types.h>
 #ifndef __LINUX_MNH_PCIE_EP_H
 #define __LINUX_MNH_PCIE_EP_H
 #define MNH_PCIE_DEBUG_ENABLE 1
-#define MNH_MAX_LL 256
-#define MNH_MAX_LL_ELEMENT 64
 /* TODO implement to mask sysfs and other code */
 
 /*****************************************************************************
@@ -145,10 +144,14 @@ struct mnh_dma_ll_element {
 	uint32_t dar_high;
 };
 
+struct mnh_dma_ll_entry {
+	struct mnh_dma_ll_element *elements;
+	dma_addr_t dma;
+	struct list_head entry;
+};
+
 struct mnh_dma_ll {
-	uint32_t size;
-	struct mnh_dma_ll_element *ll_element[MNH_MAX_LL_ELEMENT];
-	dma_addr_t dma[MNH_MAX_LL_ELEMENT];
+	struct list_head entries;
 };
 
 typedef int (*pm_callback_t)(enum mnh_ep_pm_event_t event, void *param);
@@ -240,6 +243,8 @@ int mnh_sg_release_from_dma_buf(struct mnh_sg_list *sgl);
 
 int mnh_ll_build(struct mnh_sg_entry *src_sg, struct mnh_sg_entry *dst_sg,
 					struct mnh_dma_ll *ll);
+
+uint64_t mnh_ll_base_addr(struct mnh_dma_ll *ll);
 
 int mnh_ll_destroy(struct mnh_dma_ll *ll);
 

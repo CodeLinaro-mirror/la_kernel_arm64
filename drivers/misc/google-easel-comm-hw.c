@@ -541,6 +541,7 @@ int easelcomm_hw_easel_build_ll(
 	mnh_ll = kmalloc(sizeof(struct mnh_dma_ll), GFP_KERNEL);
 	if (!mnh_ll)
 		return -ENOMEM;
+	INIT_LIST_HEAD(&mnh_ll->entries);
 	ret = mnh_ll_build(src_sg, dest_sg, mnh_ll);
 	if (ret) {
 		kfree(mnh_ll);
@@ -562,7 +563,7 @@ EXPORT_SYMBOL(easelcomm_hw_easel_build_ll);
 uint64_t easelcomm_hw_easel_ll_addr(void *ll_data)
 {
 #ifdef EASELCOMM_EASEL
-	return (uint64_t)((struct mnh_dma_ll *)ll_data)->dma[0];
+	return mnh_ll_base_addr((struct mnh_dma_ll *)ll_data);
 #else
 	return 0;
 #endif

@@ -1317,23 +1317,44 @@ static int pcie_sg_destroy(struct mnh_sg_list *sgl)
 	return 0;
 }
 
+static struct mnh_dma_ll_element *add_ll_entry(struct mnh_dma_ll *ll,
+						dma_addr_t *dma)
+{
+	struct mnh_dma_ll_entry *entry = kmalloc(sizeof(*entry), GFP_KERNEL);
+	if (!entry) {
+		dev_err(pcie_ep_dev->dev,
+			"Failed to allocate LL entry for PCIe DMA scatterlist; kmalloc failed.\n");
+		return NULL;
+	}
+
+	entry->elements = mnh_alloc_coherent(
+		DMA_LL_LENGTH * sizeof(*entry->elements), &entry->dma);
+	if (!entry->elements) {
+		dev_err(pcie_ep_dev->dev,
+			"Failed to allocate LL elements for PCIe DMA scatterlist; mnh_alloc_coherent failed to allocate %zu bytes.\n",
+			DMA_LL_LENGTH * sizeof(*entry->elements));
+		kfree(entry);
+		return NULL;
+	}
+
+	list_add_tail(&entry->entry, &ll->entries);
+	*dma = entry->dma;
+
+	return entry->elements;
+}
+
 static int pcie_ll_build(struct mnh_sg_entry *src_sg,
 			struct mnh_sg_entry *dst_sg, struct mnh_dma_ll *ll)
 {
 	struct mnh_dma_ll_element *ll_element, *tmp_element;
 	struct mnh_sg_entry sg_dst, sg_src;
-	dma_addr_t dma;
+	dma_addr_t dma, dma_base;
 	int i, s, u;
 
-	ll_element = dma_alloc_coherent(pcie_ep_dev->dev,
-		DMA_LL_LENGTH *sizeof(struct mnh_dma_ll_element), &dma, GFP_KERNEL);
-	ll->size = 0;
-	ll->ll_element[0] = ll_element;
-	ll->dma[0] = dma;
-	if (!ll_element) {
-		dev_err(pcie_ep_dev->dev, "LL alloc failed \n");
-		return -EINVAL;
-		}
+	ll_element = add_ll_entry(ll, &dma_base);
+	if (!ll_element)
+		return -ENOMEM;
+
 	i = 0;
 	s = 0;
 	u = 0;
@@ -1342,6 +1363,7 @@ static int pcie_ll_build(struct mnh_sg_entry *src_sg,
 	dev_dbg(pcie_ep_dev->dev, "LL checkpoint 2\n");
 	if ((sg_src.paddr == 0x0) || (sg_dst.paddr == 0x0)) {
 		dev_err(pcie_ep_dev->dev, "Input lists invalid\n");
+		pcie_ll_destroy(ll);
 		return -EINVAL;
 	}
 	while ((sg_src.paddr != 0x0) && (sg_dst.paddr != 0x0)) {
@@ -1386,35 +1408,15 @@ static int pcie_ll_build(struct mnh_sg_entry *src_sg,
 				ll_element[u-1].header = LL_IRQ_DATA_ELEMENT;
 				ll_element[u].header = LL_LAST_LINK_ELEMENT;
 				ll_element[u].sar_low =
-					LOWER((uint64_t) ll->dma[0]);
+					LOWER((uint64_t) dma_base);
 				ll_element[u].sar_high =
-					UPPER((uint64_t) ll->dma[0]);
+					UPPER((uint64_t) dma_base);
 				return 0;
 			}
-			if (ll->size >= (MNH_MAX_LL_ELEMENT-1)) {
-				dev_err(pcie_ep_dev->dev, "Out of dma elements\n");
-				ll_element[u-1].header = LL_IRQ_DATA_ELEMENT;
-				ll_element[u].header = LL_LAST_LINK_ELEMENT;
-				ll_element[u].sar_low =
-					LOWER((uint64_t) ll->dma[0]);
-				ll_element[u].sar_high =
-					UPPER((uint64_t) ll->dma[0]);
-				pcie_ll_destroy(ll);
-				return -EINVAL;
-			}
-			tmp_element = dma_alloc_coherent(pcie_ep_dev->dev,
-			DMA_LL_LENGTH * sizeof(struct mnh_dma_ll_element),
-				&dma, GFP_KERNEL);
+			tmp_element = add_ll_entry(ll, &dma);
 			if (!tmp_element) {
-				dev_err(pcie_ep_dev->dev, "Element allcation failed\n");
-				ll_element[u-1].header = LL_IRQ_DATA_ELEMENT;
-				ll_element[u].header = LL_LAST_LINK_ELEMENT;
-				ll_element[u].sar_low =
-					LOWER((uint64_t) ll->dma[0]);
-				ll_element[u].sar_high =
-					UPPER((uint64_t) ll->dma[0]);
 				pcie_ll_destroy(ll);
-				return -EINVAL;
+				return -ENOMEM;
 			}
 			ll_element[u].sar_low =
 				LOWER((uint64_t) dma);
@@ -1422,29 +1424,26 @@ static int pcie_ll_build(struct mnh_sg_entry *src_sg,
 				UPPER((uint64_t) dma);
 			ll_element = tmp_element;
 			u = 0;
-			ll->size++;
-			ll->ll_element[ll->size] = ll_element;
-			ll->dma[ll->size] = dma;
 		}
 	}
 	ll_element[u-1].header = LL_IRQ_DATA_ELEMENT;
 	ll_element[u].header = LL_LAST_LINK_ELEMENT;
-	ll_element[u].sar_low = LOWER((uint64_t) ll->dma[0]);
-	ll_element[u].sar_high = UPPER((uint64_t) ll->dma[0]);
+	ll_element[u].sar_low = LOWER((uint64_t) dma_base);
+	ll_element[u].sar_high = UPPER((uint64_t) dma_base);
 	return 0;
 }
 
 static int pcie_ll_destroy(struct mnh_dma_ll *ll)
 {
-	int i;
+	struct mnh_dma_ll_entry *entry, *tmp;
 
-	i = 0;
-	while (i <= ll->size) {
-		mnh_free_coherent(DMA_LL_LENGTH
-			* sizeof(struct mnh_dma_ll_element),
-			ll->ll_element[i], ll->dma[i]);
-		i++;
+	list_for_each_entry_safe(entry, tmp, &ll->entries, entry) {
+		list_del(&entry->entry);
+		mnh_free_coherent(DMA_LL_LENGTH * sizeof(*entry->elements),
+					entry->elements, entry->dma);
+		kfree(entry);
 	}
+
 	return 0;
 }
 
@@ -1583,6 +1582,19 @@ int mnh_ll_build(struct mnh_sg_entry *src_sg, struct mnh_sg_entry *dst_sg,
 	return pcie_ll_build(src_sg, dst_sg, ll);
 }
 EXPORT_SYMBOL(mnh_ll_build);
+
+uint64_t mnh_ll_base_addr(struct mnh_dma_ll *ll)
+{
+	struct mnh_dma_ll_entry *entry;
+	entry = list_first_entry_or_null(&ll->entries, typeof(*entry), entry);
+	if (!entry) {
+		dev_err(pcie_ep_dev->dev, "PCIe DMA scatterlist is empty.\n");
+		return 0;
+	}
+
+	return (uint64_t)entry->dma;
+}
+EXPORT_SYMBOL(mnh_ll_base_addr);
 
 int mnh_ll_destroy(struct mnh_dma_ll *ll)
 {

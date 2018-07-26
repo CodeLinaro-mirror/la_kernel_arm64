@@ -73,10 +73,10 @@ static int buildll(void)
 	dev_err(pcie_ep_tst_device, "Start LL build \n");
 	if (dma_dir == 1) {
 		if (mnh_ll_build(sg2, sg1, ll_adr) == 0)
-			dev_err(pcie_ep_tst_device, "LL build succesfully %d  %pad\n", ll_adr->size, &ll_adr->dma[0]);
+			dev_err(pcie_ep_tst_device, "LL built successfully\n");
 	} else if (mnh_ll_build(sg1, sg2, ll_adr) == 0)
-			dev_err(pcie_ep_tst_device, "LL build succesfully %d  %pad\n", ll_adr->size, &ll_adr->dma[0]);
-	mnh_set_rb_base(ll_adr->dma[0]);
+			dev_err(pcie_ep_tst_device, "LL built successfully\n");
+	mnh_set_rb_base(mnh_ll_base_addr(ll_adr));
 	status = 2;
 	//status = 3;
 	return 0;

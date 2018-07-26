@@ -34,8 +34,11 @@
 #define REGION_1		1
 #define REGION_2		2
 
-//#define DMA_LL_LENGTH			20 /*TODO Needs to be optimized */
-#define DMA_LL_LENGTH			256 /*TODO Needs to be optimized */
+/* Size of a single DMA linked list element/descriptor (which is represented in
+ * code by mnh_dma_ll_element).
+ */
+#define DMA_LL_ELEMENT_SIZE	24
+#define DMA_LL_LENGTH		(PAGE_SIZE / DMA_LL_ELEMENT_SIZE)
 
 #define LL_DATA_ELEMENT			0x1
 #define LL_IRQ_DATA_ELEMENT		0x19
