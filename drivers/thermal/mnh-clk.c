@@ -62,7 +62,7 @@ static unsigned long invoke_mnh_fn_smc(unsigned long function_id,
 
 /* consider moving to struct */
 u8 previous_refresh_rate;
-u32 mnh_ddr_refresh_msec = 100;
+u32 mnh_ddr_refresh_msec = 50;
 struct delayed_work mnh_ddr_adjust_refresh_work;
 
 #define MNH_CPU_IN(reg) \
@@ -85,6 +85,7 @@ HW_OUT(mnh_dev->ddraddr, DDR_CTL, reg, val)
 	((freq < 850) ? ((div+1)*2-1):((div+1)*2))
 
 int mnh_ddr_clr_int_status(void);
+static void mnh_ddr_adjust_refresh_worker(struct work_struct *work);
 
 enum mnh_refclk_type {
 	REFCLK_KHZ_19200 = 0,
@@ -617,6 +618,9 @@ int mnh_lpddr_freq_change(int index)
 		return 0;
 	}
 
+	/* Must resume below */
+	cancel_delayed_work_sync(&mnh_ddr_adjust_refresh_work);
+
 	if (!HW_INxf(mnh_dev->regs, SCU,
 		LPDDR4_FSP_SETTING, index, FSP_SYS200_MODE))
 		mnh_lpddr_sys200_mode(false);
@@ -672,6 +676,10 @@ int mnh_lpddr_freq_change(int index)
 		mnh_lpddr_sys200_mode(true);
 
 	mnh_ddr_clr_int_status();
+
+	/* reschedule refresh worker after cancel_delayed_work_sync */
+	mnh_ddr_adjust_refresh_resume();
+
 	return 0;
 }
 EXPORT_SYMBOL(mnh_lpddr_freq_change);
@@ -848,7 +856,7 @@ static int mnh_ddr_clr_int_status_bit(u8 sbit)
 		MNH_DDR_CTL_OUT(229, 1 << sbit);
 
 	if (mnh_ddr_int_status_bit(sbit)) {
-		pr_err("%s: bit %d is still set.\n",
+		pr_info("%s: bit %d is still set.\n",
 			__func__, sbit);
 		return -1;
 	}
@@ -964,20 +972,23 @@ int mnh_ddr_read_mode_reg(u8 modereg, u8 *val0, u8 *val1)
 
 int mnh_ddr_adjust_refresh_suspend(void)
 {
-	int ret = cancel_delayed_work(&mnh_ddr_adjust_refresh_work);
+	cancel_delayed_work_sync(&mnh_ddr_adjust_refresh_work);
 	/*
-	AP will re-init (resume) ddr with hottest settings
-	and we will adjust appropriately on resume,
-	just like cold-boot case.
-	*/
+	 * AP will re-init (resume) ddr with hottest settings
+	 * and we will adjust appropriately on resume,
+	 * just like cold-boot case.
+	 */
 	previous_refresh_rate = INIT_REFRESH_RATE;
-	return ret;
+	return 1;
 }
 
 int mnh_ddr_adjust_refresh_resume(void)
 {
-	return schedule_delayed_work(&mnh_ddr_adjust_refresh_work,
-			mnh_ddr_refresh_msec);
+	/* force the refresh worker execution, the worker
+	 * schedules itself for subsequent execution
+	 */
+	mnh_ddr_adjust_refresh_worker(NULL);
+	return 1;
 }
 
 static u16 mnh_ddr_update_refresh(u8 old_rate, u16 old_interval,
