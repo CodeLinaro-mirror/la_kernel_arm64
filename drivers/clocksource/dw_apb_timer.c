@@ -226,7 +226,7 @@ static void dw_apb_clockevent_pm_suspend(struct clock_event_device *evt)
 {
 	struct dw_apb_clock_event_device *dw_ced = ced_to_dw_apb_ced(evt);
 
-	disable_irq(dw_ced->timer.irq);
+	disable_irq_nosync(dw_ced->timer.irq);
 }
 
 static void dw_apb_clockevent_pm_resume(struct clock_event_device *evt)
