@@ -29,6 +29,7 @@
 #include <soc/mnh/mnh-hwio-scu.h>
 #include <soc/mnh/mnh-hwio-cpu.h>
 #include <soc/mnh/mnh-hwio-ddr-ctl.h>
+#include <linux/arm-smccc.h>
 #include "mnh-clk.h"
 
 #define PLL_UNLOCK 0x4CD9
@@ -45,6 +46,19 @@
 #define LP_CMD_SBIT 5
 
 #define INIT_REFRESH_RATE 0x06
+#define MNH_PM_FSP_SET_AARCH64	0xC300FF05
+#define MNH_PM_FSP_GET_AARCH64	0xC300FF06
+
+static unsigned long invoke_mnh_fn_smc(unsigned long function_id,
+			unsigned long arg0, unsigned long arg1,
+			unsigned long arg2)
+{
+	struct arm_smccc_res res;
+
+	arm_smccc_smc(function_id, arg0, arg1, arg2, 0, 0, 0, 0, &res);
+	return res.a0;
+}
+
 
 /* consider moving to struct */
 u8 previous_refresh_rate;
@@ -1626,6 +1640,34 @@ static ssize_t dump_powerregs_get(struct device *dev,
 	return (ssize_t) (buf - origbuf);
 }
 
+static ssize_t sbl_fsp_get(struct device *dev,
+				struct device_attribute *attr,
+				char *buf)
+{
+	unsigned long fsp = 0;
+	int ret = invoke_mnh_fn_smc(MNH_PM_FSP_GET_AARCH64, 0, 0, 0);
+
+	return sprintf(buf, "%d\n", ret);
+}
+
+static ssize_t sbl_fsp_set(struct device *dev,
+				  struct device_attribute *attr,
+				  const char *buf,
+				  size_t count)
+{
+	unsigned long fsp = 0;
+	int ret;
+
+	ret = kstrtoint(buf, 10, &fsp);
+	if (ret < 0)
+		return ret;
+	dev_dbg(mnh_dev->dev, "%s: %d\n", __func__, fsp);
+
+	ret = invoke_mnh_fn_smc(MNH_PM_FSP_SET_AARCH64, fsp, 0, 0);
+
+	return count;
+}
+
 static DEVICE_ATTR(cpu_freq, S_IWUSR | S_IRUGO,
 		cpu_freq_get, cpu_freq_set);
 static DEVICE_ATTR(ipu_freq, S_IWUSR | S_IRUGO,
@@ -1648,6 +1690,8 @@ static DEVICE_ATTR(lpddr_mrr4, S_IRUGO,
 		lpddr_mrr4_get, NULL);
 static DEVICE_ATTR(dump_powerregs, S_IRUGO,
 		dump_powerregs_get, NULL);
+static DEVICE_ATTR(sbl_fsp, S_IWUSR | S_IRUGO,
+		sbl_fsp_get, sbl_fsp_set);
 
 static int ddr_ctl_read_reg;
 #define MAX_DDR_CTL_REG 558
@@ -1733,6 +1777,7 @@ static struct attribute *freq_dev_attributes[] = {
 	&dev_attr_dump_powerregs.attr,
 	&dev_attr_ddr_ctl_read.attr,
 	&dev_attr_ddr_ctl_write.attr,
+	&dev_attr_sbl_fsp.attr,
 	NULL
 };
 
