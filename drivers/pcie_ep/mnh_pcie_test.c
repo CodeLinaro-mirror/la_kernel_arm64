@@ -169,7 +169,7 @@ static ssize_t  mth_fs_pcie_write(struct file *file, const char __user *buf, siz
 
 static ssize_t mth_fs_pcie_read (struct file *filp,char *buf, size_t length, loff_t * offset)
 {
-	static char msg[5];
+	static char msg[6];
 	unsigned long ret = 0;
 
 	if (status == 3) {
@@ -179,13 +179,13 @@ static ssize_t mth_fs_pcie_read (struct file *filp,char *buf, size_t length, lof
 		//sprintf(msg, "WAIT\n");
 		if (length < 6)
 			return 0;
-		ret = copy_to_user(buf,&msg,5);
+		ret = copy_to_user(buf,&msg,6);
 		return 6;
 	} else {
 		sprintf(msg, "WAIT\n");
 		if (length < 6)
 			return 0;
-		ret = copy_to_user(buf,&msg,5);
+		ret = copy_to_user(buf,&msg,6);
 		return 6;
 	}
 }
