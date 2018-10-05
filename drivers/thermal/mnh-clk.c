@@ -600,7 +600,94 @@ EXPORT_SYMBOL(mnh_ipu_freq_change);
  * LPDDR refclk pll should be enabled at cold boot and resume
  * LPDDR FSPx registers should be configured at cold boot and resume
  */
-int mnh_lpddr_freq_change(int index)
+int mnh_lpddr_hw_freq_change(int index)
+{
+	int status = 0;
+
+	if (!mnh_dev)
+		return -ENODEV;
+
+	dev_dbg(mnh_dev->dev, "%s: %d\n", __func__, index);
+
+	if (index < LPDDR_FREQ_MIN || index > LPDDR_FREQ_MAX)
+		return -EINVAL;
+
+	/* Check the requested FSP is already in use */
+	mnh_dev->ddr_freq = HW_INf(mnh_dev->regs, SCU, LPDDR4_LOW_POWER_STS,
+		LPDDR4_CUR_FSP);
+	if (mnh_dev->ddr_freq == index) {
+		dev_dbg(mnh_dev->dev, "requested fsp%d is in use\n", index);
+		return 0;
+	}
+
+	if (!HW_INxf(mnh_dev->regs, SCU,
+		LPDDR4_FSP_SETTING, index, FSP_SYS200_MODE))
+		mnh_lpddr_sys200_mode(false);
+
+	/* Must resume below */
+	cancel_delayed_work_sync(&mnh_ddr_adjust_refresh_work);
+
+	/* Disable LPC SW override */
+	HW_OUTf(mnh_dev->regs, SCU, LPDDR4_LOW_POWER_CFG,
+		LP4_FSP_SW_OVERRIDE, 0);
+
+	/* Configure FSP index */
+	HW_OUTf(mnh_dev->regs, SCU, LPDDR4_LOW_POWER_CFG,
+		LPC_FREQ_CHG_COPY_NUM, index);
+
+	/* Configure LPC cmd for frequency switch */
+	HW_OUTf(mnh_dev->regs, SCU, LPDDR4_LOW_POWER_CFG,
+		LPC_EXT_CMD, LP4_LPC_FREQ_SWITCH);
+
+	/* Initiate LPC cmd to LPDDR controller */
+	dev_info(mnh_dev->dev, "lpddr freq switching from fsp%d to fsp%d\n",
+		mnh_dev->ddr_freq, index);
+	HW_OUTf(mnh_dev->regs, SCU, LPDDR4_LOW_POWER_CFG, LPC_EXT_CMD_REQ, 1);
+
+	/* Wait until LPC cmd process is done */
+	do {
+		status = HW_INf(mnh_dev->regs, SCU, LPDDR4_LOW_POWER_STS,
+			LPC_CMD_DONE);
+	} while (status != 1);
+
+	/* Clear LPC cmd status */
+	HW_OUTf(mnh_dev->regs, SCU, LPDDR4_LOW_POWER_STS, LPC_CMD_DONE, 1);
+
+	/* Check LPC error status */
+	if (HW_INf(mnh_dev->regs, SCU, LPDDR4_LOW_POWER_STS, LPC_CMD_RSP)
+		== LPC_CMD_ERR) {
+		/* Clear error status */
+		HW_OUTf(mnh_dev->regs, SCU, LPDDR4_LOW_POWER_STS,
+			LPC_CMD_RSP, 1);
+		dev_err(mnh_dev->dev, "Failed to process lpc cmd:0x%x\n",
+			LP4_LPC_FREQ_SWITCH);
+		return -1;
+	}
+
+	/* Check FSPx switch status */
+	if (HW_INf(mnh_dev->regs, SCU, LPDDR4_LOW_POWER_STS, LPDDR4_CUR_FSP)
+		!= index) {
+		dev_err(mnh_dev->dev, "Failed to switch to fsp%d\n", index);
+		return -1;
+	}
+
+	mnh_dev->ddr_freq = index;
+
+	if (HW_INxf(mnh_dev->regs, SCU,
+		LPDDR4_FSP_SETTING, index, FSP_SYS200_MODE))
+		mnh_lpddr_sys200_mode(true);
+
+	mnh_ddr_clr_int_status();
+
+	/* reschedule refresh worker after cancel_delayed_work_sync */
+	mnh_ddr_adjust_refresh_resume();
+
+	return 0;
+}
+EXPORT_SYMBOL(mnh_lpddr_hw_freq_change);
+
+
+int mnh_lpddr_sw_freq_change(int index)
 {
 	int ret = 0;
 	static int iteration;
@@ -663,7 +750,7 @@ int mnh_lpddr_freq_change(int index)
 
 	return 0;
 }
-EXPORT_SYMBOL(mnh_lpddr_freq_change);
+EXPORT_SYMBOL(mnh_lpddr_sw_freq_change);
 
 /**
  * LPDDR clock control driver
@@ -1354,7 +1441,7 @@ static ssize_t ipu_freq_set(struct device *dev,
 	return -EINVAL;
 }
 
-static ssize_t lpddr_freq_get(struct device *dev,
+static ssize_t lpddr_hw_freq_get(struct device *dev,
 				struct device_attribute *attr,
 				char *buf)
 {
@@ -1364,7 +1451,7 @@ static ssize_t lpddr_freq_get(struct device *dev,
 	return sprintf(buf, "FSP%d\n", var);
 }
 
-static ssize_t lpddr_freq_set(struct device *dev,
+static ssize_t lpddr_hw_freq_set(struct device *dev,
 				  struct device_attribute *attr,
 				  const char *buf,
 				  size_t count)
@@ -1377,7 +1464,7 @@ static ssize_t lpddr_freq_set(struct device *dev,
 		return ret;
 
 	dev_dbg(mnh_dev->dev, "%s: %d\n", __func__, var);
-	if (!mnh_lpddr_freq_change(var))
+	if (!mnh_lpddr_hw_freq_change(var))
 		return count;
 	else
 		return -EIO;
@@ -1623,12 +1710,40 @@ static ssize_t dump_powerregs_get(struct device *dev,
 	return (ssize_t) (buf - origbuf);
 }
 
+static ssize_t lpddr_sw_freq_get(struct device *dev,
+				struct device_attribute *attr,
+				char *buf)
+{
+	unsigned long fsp = 0;
+	int ret = invoke_mnh_fn_smc(MNH_PM_FSP_GET_AARCH64, 0, 0, 0);
+
+	return sprintf(buf, "%d\n", ret);
+}
+
+static ssize_t lpddr_sw_freq_set(struct device *dev,
+				  struct device_attribute *attr,
+				  const char *buf,
+				  size_t count)
+{
+	unsigned long fsp = 0;
+	int ret;
+
+	ret = kstrtoint(buf, 10, &fsp);
+	if (ret < 0)
+		return ret;
+	dev_dbg(mnh_dev->dev, "%s: %d\n", __func__, fsp);
+
+	ret = mnh_lpddr_sw_freq_change(fsp);
+
+	return count;
+}
+
 static DEVICE_ATTR(cpu_freq, S_IWUSR | S_IRUGO,
 		cpu_freq_get, cpu_freq_set);
 static DEVICE_ATTR(ipu_freq, S_IWUSR | S_IRUGO,
 		ipu_freq_get, ipu_freq_set);
-static DEVICE_ATTR(lpddr_freq, S_IWUSR | S_IRUGO,
-		lpddr_freq_get, lpddr_freq_set);
+static DEVICE_ATTR(lpddr_freq_hw, S_IWUSR | S_IRUGO,
+		lpddr_hw_freq_get, lpddr_hw_freq_set);
 static DEVICE_ATTR(ipu_clk_src, S_IRUGO,
 		ipu_clk_src_get, NULL);
 static DEVICE_ATTR(sys200, S_IWUSR | S_IRUGO,
@@ -1645,6 +1760,8 @@ static DEVICE_ATTR(lpddr_mrr4, S_IRUGO,
 		lpddr_mrr4_get, NULL);
 static DEVICE_ATTR(dump_powerregs, S_IRUGO,
 		dump_powerregs_get, NULL);
+static DEVICE_ATTR(lpddr_freq, S_IWUSR | S_IRUGO,
+		lpddr_sw_freq_get, lpddr_sw_freq_set);
 
 static int ddr_ctl_read_reg;
 #define MAX_DDR_CTL_REG 558
@@ -1730,6 +1847,7 @@ static struct attribute *freq_dev_attributes[] = {
 	&dev_attr_dump_powerregs.attr,
 	&dev_attr_ddr_ctl_read.attr,
 	&dev_attr_ddr_ctl_write.attr,
+	&dev_attr_lpddr_freq_hw.attr,
 	NULL
 };
 
