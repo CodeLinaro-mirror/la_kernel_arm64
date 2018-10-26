@@ -87,6 +87,7 @@ HW_OUT(mnh_dev->ddraddr, DDR_CTL, reg, val)
 int mnh_ddr_clr_int_status(void);
 static void mnh_ddr_adjust_refresh_worker(struct work_struct *work);
 static void mnh_ddr_disable_lp(void);
+static u8 lp_counters[4];
 
 enum mnh_refclk_type {
 	REFCLK_KHZ_19200 = 0,
@@ -972,18 +973,34 @@ static void mnh_ddr_enable_lp(void)
 	MNH_DDR_CTL_OUTf(124, LP_AUTO_SR_MC_GATE_IDLE,
 		sleep_val[fsp]);
 
-	MNH_DDR_CTL_OUTf(122, LP_AUTO_MEM_GATE_EN, 0x4);
-	MNH_DDR_CTL_OUTf(122, LP_AUTO_ENTRY_EN, 0x4);
-	MNH_DDR_CTL_OUTf(122, LP_AUTO_EXIT_EN, 0xF);
+	MNH_DDR_CTL_OUTf(123, LP_AUTO_PD_IDLE, lp_counters[0]);
+	MNH_DDR_CTL_OUTf(123, LP_AUTO_SRPD_LITE_IDLE, lp_counters[1]);
+	MNH_DDR_CTL_OUTf(124, LP_AUTO_SR_IDLE, lp_counters[2]);
+	MNH_DDR_CTL_OUTf(124, LP_AUTO_SR_MC_GATE_IDLE, lp_counters[3]);
+
+	if (MNH_DDR_CTL_INf(122, LP_AUTO_EXIT_EN) == 0)
+		MNH_DDR_CTL_OUTf(122, LP_AUTO_EXIT_EN, 0xF);
+
+	if (MNH_DDR_CTL_INf(122, LP_AUTO_MEM_GATE_EN) == 0)
+		MNH_DDR_CTL_OUTf(122, LP_AUTO_MEM_GATE_EN, 0x4);
+
+	if (MNH_DDR_CTL_INf(122, LP_AUTO_ENTRY_EN) == 0)
+		MNH_DDR_CTL_OUTf(122, LP_AUTO_ENTRY_EN, 0x4);
 }
 
 static void mnh_ddr_disable_lp(void)
 {
 	dev_dbg(mnh_dev->dev, "%s\n", __func__);
-	MNH_DDR_CTL_OUTf(124, LP_AUTO_SR_MC_GATE_IDLE, 0x00);
-	MNH_DDR_CTL_OUTf(122, LP_AUTO_MEM_GATE_EN, 0x0);
+	lp_counters[0] = MNH_DDR_CTL_INf(123, LP_AUTO_PD_IDLE);
+	lp_counters[1] = MNH_DDR_CTL_INf(123, LP_AUTO_SRPD_LITE_IDLE);
+	lp_counters[2] = MNH_DDR_CTL_INf(124, LP_AUTO_SR_IDLE);
+	lp_counters[3] = MNH_DDR_CTL_INf(124, LP_AUTO_SR_MC_GATE_IDLE);
+
+	MNH_DDR_CTL_OUTf(123, LP_AUTO_PD_IDLE, 0x0);
+	MNH_DDR_CTL_OUTf(123, LP_AUTO_SRPD_LITE_IDLE, 0x0);
+	MNH_DDR_CTL_OUTf(124, LP_AUTO_SR_IDLE, 0x0);
+	MNH_DDR_CTL_OUTf(124, LP_AUTO_SR_MC_GATE_IDLE, 0x0);
 	MNH_DDR_CTL_OUTf(122, LP_AUTO_ENTRY_EN, 0x0);
-	MNH_DDR_CTL_OUTf(122, LP_AUTO_EXIT_EN, 0x0);
 	mnh_ddr_send_lp_cmd(LP_CMD_EXIT_LP);
 }
 
@@ -1138,6 +1155,10 @@ static void mnh_ddr_adjust_refresh_worker(struct work_struct *work)
 	const u8 tuf_fld = 0x80;
 	int ret = 0;
 	int got_tuf = 0;
+
+	/* skip the refresh rate update if the DRAM is in low power state */
+	if ((MNH_DDR_CTL_INf(121, LP_STATE) & 0xF) > 0x7)
+		goto refresh_again;
 
 	ret = mnh_ddr_read_mode_reg(4, &val0, &val1);
 	mnh_dev->ddr_mrr4 = (u32)val1 << 16 | (u32)val0;
