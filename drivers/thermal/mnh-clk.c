@@ -190,6 +190,7 @@ struct mnh_freq_cooling_device {
 	const struct freq_reg_table *cpu_pllcfg;
 	const struct freq_reg_table *ipu_pllcfg;
 	spinlock_t reset_lock;
+	uint32_t fsp_cycle;
 };
 
 static struct mnh_freq_cooling_device *mnh_dev;
@@ -692,7 +693,6 @@ int mnh_lpddr_sw_freq_change(int index)
 {
 	int ret = 0;
 	static int iteration;
-
 	if (!mnh_dev)
 		return -ENODEV;
 
@@ -721,8 +721,10 @@ int mnh_lpddr_sw_freq_change(int index)
 
 	/* debug register */
 	HW_OUTx(mnh_dev->regs, SCU, GPS, 3, 0);
-	ret = invoke_mnh_fn_smc(MNH_PM_FSP_SET_AARCH64, index, 0, 0);
-
+	ret = invoke_mnh_fn_smc(MNH_PM_FSP_SET_AARCH64,
+		index,
+		virt_to_phys(&mnh_dev->fsp_cycle),
+		0);
 	if (ret) {
 		dev_err(mnh_dev->dev, "Switch routine returned an error: %d %d\n",
 			ret, HW_INx(mnh_dev->regs, SCU, GPS, 3));
