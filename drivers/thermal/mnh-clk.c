@@ -1378,6 +1378,13 @@ static ssize_t lpddr_freq_set(struct device *dev,
 	if (ret < 0)
 		return ret;
 
+	/*
+	 * FSP0 is not recommended in runtime.
+	 * Use FSP1 instead if FSP0 is requested.
+	 */
+	if (var == LPDDR_FREQ_FSP0)
+		var = LPDDR_FREQ_FSP1;
+
 	dev_dbg(mnh_dev->dev, "%s: %d\n", __func__, var);
 	if (!mnh_lpddr_freq_change(var))
 		return count;
