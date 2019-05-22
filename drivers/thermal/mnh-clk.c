@@ -1065,6 +1065,7 @@ int mnh_ddr_adjust_refresh_suspend(void)
 	 * just like cold-boot case.
 	 */
 	previous_refresh_rate = INIT_REFRESH_RATE;
+
 	return 1;
 }
 
@@ -1766,6 +1767,13 @@ static ssize_t lpddr_sw_freq_set(struct device *dev,
 		return ret;
 	dev_dbg(mnh_dev->dev, "%s: %d\n", __func__, fsp);
 
+	/*
+	 * FSP0 is not recommended in runtime.
+	 * Use FSP1 instead if FSP0 is requested.
+	 */
+	if (fsp == LPDDR_FREQ_FSP0)
+		fsp = LPDDR_FREQ_FSP1;
+
 	ret = mnh_lpddr_sw_freq_change(fsp);
 
 	return count;
@@ -1939,6 +1947,7 @@ static irqreturn_t mnh_pm_handle_ddr_irq(int irq, void *dev_id)
 	/* return interrupt handled */
 	return IRQ_HANDLED;
 }
+
 int mnh_clk_init(struct platform_device *pdev, void __iomem *baseadress)
 {
 	int ret = 0, err = 0;
