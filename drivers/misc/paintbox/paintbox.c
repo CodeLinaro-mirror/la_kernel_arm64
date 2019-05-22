@@ -241,13 +241,6 @@ static long paintbox_get_caps_ioctl(struct paintbox_data *pb,
 /* The caller to this function must hold pb lock */
 static long paintbox_ipu_reset(struct paintbox_data *pb)
 {
-	if (pb->session_count > 1) {
-		dev_warn(&pb->pdev->dev,
-				"%s: ignoring reset request: multiple active sessions\n",
-				__func__);
-		return -EBUSY;
-	}
-
 	paintbox_io_disable_interrupt(pb, ~0ULL);
 	mnh_ipu_reset();
 	paintbox_io_apb_post_ipu_reset(pb);
@@ -265,9 +258,43 @@ static long paintbox_ipu_reset_ioctl(struct paintbox_data *pb,
 		struct paintbox_session *session, unsigned long arg)
 {
 	int ret;
+	unsigned int i;
 
 	mutex_lock(&pb->lock);
+
+	for (i = 0; i < pb->lbp.num_lbps; i++) {
+		if (pb->lbp.lbps[i].session &&
+				(pb->lbp.lbps[i].session != session)) {
+			ret = -EBUSY;
+			goto unlock;
+		}
+	}
+
+	for (i = 0; i < pb->stp.num_stps; i++) {
+		if (pb->stp.stps[i].session &&
+				(pb->stp.stps[i].session != session)) {
+			ret = -EBUSY;
+			goto unlock;
+		}
+	}
+
+	for (i = 0; i < pb->dma.num_channels; i++) {
+		if (pb->dma.channels[i].session &&
+				(pb->dma.channels[i].session != session)) {
+			ret = -EBUSY;
+			goto unlock;
+		}
+	}
+
+	for (i = 0; i < pb->io.num_interrupts; i++) {
+		if (pb->irqs[i].session && (pb->irqs[i].session != session)) {
+			ret = -EBUSY;
+			goto unlock;
+		}
+	}
+
 	ret = paintbox_ipu_reset(pb);
+unlock:
 	mutex_unlock(&pb->lock);
 
 	return ret;
