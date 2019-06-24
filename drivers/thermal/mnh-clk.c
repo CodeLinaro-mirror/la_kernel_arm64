@@ -1208,7 +1208,10 @@ int mnh_axi_clock_gating(int enabled)
 	if (enabled != 1 && enabled != 0)
 		return -EINVAL;
 
+	/* WR: ignore request to set HALT_AXICG_EN. Context: b/119834879. */
+#if 0
 	HW_OUTf(mnh_dev->regs, SCU, CCU_CLK_CTL, HALT_AXICG_EN, enabled);
+#endif
 
 	return 0;
 }
