@@ -1783,7 +1783,7 @@ static DEVICE_ATTR(cpu_freq, S_IWUSR | S_IRUGO,
 		cpu_freq_get, cpu_freq_set);
 static DEVICE_ATTR(ipu_freq, S_IWUSR | S_IRUGO,
 		ipu_freq_get, ipu_freq_set);
-static DEVICE_ATTR(lpddr_freq_hw, S_IWUSR | S_IRUGO,
+static DEVICE_ATTR(lpddr_freq, S_IWUSR | S_IRUGO,
 		lpddr_hw_freq_get, lpddr_hw_freq_set);
 static DEVICE_ATTR(ipu_clk_src, S_IRUGO,
 		ipu_clk_src_get, NULL);
@@ -1801,7 +1801,7 @@ static DEVICE_ATTR(lpddr_mrr4, S_IRUGO,
 		lpddr_mrr4_get, NULL);
 static DEVICE_ATTR(dump_powerregs, S_IRUGO,
 		dump_powerregs_get, NULL);
-static DEVICE_ATTR(lpddr_freq, S_IWUSR | S_IRUGO,
+static DEVICE_ATTR(lpddr_freq_sw, S_IWUSR | S_IRUGO,
 		lpddr_sw_freq_get, lpddr_sw_freq_set);
 
 static int ddr_ctl_read_reg;
@@ -1888,7 +1888,7 @@ static struct attribute *freq_dev_attributes[] = {
 	&dev_attr_dump_powerregs.attr,
 	&dev_attr_ddr_ctl_read.attr,
 	&dev_attr_ddr_ctl_write.attr,
-	&dev_attr_lpddr_freq_hw.attr,
+	&dev_attr_lpddr_freq_sw.attr,
 	NULL
 };
 
