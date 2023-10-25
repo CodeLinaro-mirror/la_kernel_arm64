@@ -45,6 +45,8 @@ static struct dma_buf_ops uvm_dma_buf_ops;
 
 static int enable_screencap;
 module_param_named(enable_screencap, enable_screencap, int, 0664);
+#define MAX_WIDTH 4096
+#define MAX_HEIGHT 2304
 
 static int meson_uvm_alloc_buffer(struct dma_buf *dmabuf)
 {
@@ -61,6 +63,7 @@ static int meson_uvm_alloc_buffer(struct dma_buf *dmabuf)
 
 	/* use ion_alloc to alloc the buffer */
 	num_pages = PAGE_ALIGN(buffer->size) / PAGE_SIZE;
+	pr_debug("num_pages: %d.\n", num_pages);
 
 	file_private_data = buffer->file_private_data;
 	if (file_private_data->flag & V4LVIDEO_FLAG_DI_NR)
@@ -73,21 +76,22 @@ static int meson_uvm_alloc_buffer(struct dma_buf *dmabuf)
 	else
 		heap_type = ION_HEAP_TYPE_CUSTOM;
 
-	pr_debug("num_pages: %d.\n", num_pages);
-	handle = ion_alloc(uvm_dev->uvm_client, buffer->size, 0,
-						(1 << heap_type), 0);
-	if (IS_ERR(handle)) {
-		pr_err("%s: ion_alloc fail.\n", __func__);
-		return -1;
-	}
+	if (buffer->size <= MAX_WIDTH * MAX_HEIGHT * 3 / 2) {
+		handle = ion_alloc(uvm_dev->uvm_client, buffer->size, 0,
+							(1 << heap_type), 0);
+		if (IS_ERR(handle)) {
+			pr_err("%s: ion_alloc fail.\n", __func__);
+			return -1;
+		}
 
-	ion_phys(uvm_dev->uvm_client, handle,
-			(ion_phys_addr_t *)&pat, &len);
-	buffer->handle = handle;
-	buffer->paddr = pat;
-	sgt = handle->buffer->sg_table;
-	dma_sync_sg_for_device(uvm_dev->pdev,
-			       sgt->sgl, sgt->nents, DMA_BIDIRECTIONAL);
+		ion_phys(uvm_dev->uvm_client, handle,
+				(ion_phys_addr_t *)&pat, &len);
+		buffer->handle = handle;
+		buffer->paddr = pat;
+		sgt = handle->buffer->sg_table;
+		dma_sync_sg_for_device(uvm_dev->pdev,
+				       sgt->sgl, sgt->nents, DMA_BIDIRECTIONAL);
+	}
 
 	return 0;
 }
@@ -179,14 +183,22 @@ static int meson_uvm_fill_pattern(struct dma_buf *dmabuf)
 	struct file_private_data *file_private_data;
 
 	file_private_data = buffer->file_private_data;
-
 	val_data.file_private_data = file_private_data;
+
+	if (!buffer->vaddr)
+		return -1;
 	val_data.dst_addr = buffer->vaddr;
+
+	if (dmabuf->size < buffer->byte_stride * buffer->height * 3 / 2) {
+		pr_err("dmabuf->size:%zu is invalid. buffer byte_stride:%d width:%d height:%d.\n",
+			 dmabuf->size, buffer->byte_stride, buffer->width, buffer->height);
+		return -1;
+	}
 	val_data.byte_stride = buffer->byte_stride;
 	val_data.width = buffer->width;
 	val_data.height = buffer->height;
-	val_data.phy_addr[0] = buffer->paddr;
 
+	val_data.phy_addr[0] = buffer->paddr;
 	pr_debug("the phy addr is %pa.\n", &val_data.phy_addr[0]);
 
 	if (file_private_data->flag & V4LVIDEO_FLAG_DI_NR)
@@ -243,21 +255,23 @@ static struct sg_table *meson_uvm_map_dma_buf(
 		return ERR_PTR(-ENODEV);
 	}
 
-	if (!buffer->handle && meson_uvm_alloc_buffer(dmabuf)) {
-		pr_err("uvm_map_dma_buf fail.\n");
-		return ERR_PTR(-ENOMEM);
+	if (!buffer->handle) {
+		if (meson_uvm_alloc_buffer(dmabuf)) {
+			pr_err("uvm_map_dma_buf fail.\n");
+			return ERR_PTR(-ENOMEM);
+		}
+		meson_uvm_map_buffer(dmabuf);
 	}
-
-	meson_uvm_map_buffer(dmabuf);
 	meson_uvm_fill_pattern(dmabuf);
 
 	sgt = buffer->sgt;
-	if (!dma_map_sg(attachment->dev, sgt->sgl, sgt->nents, direction)) {
+	if (!sgt && !dma_map_sg(attachment->dev, sgt->sgl, sgt->nents, direction)) {
 		pr_err("meson_uvm: dma_map_sg call failed.\n");
 		sgt = ERR_PTR(-ENOMEM);
+	} else {
+		dma_sync_sg_for_device(uvm_dev->pdev,
+				       sgt->sgl, sgt->nents, DMA_BIDIRECTIONAL);
 	}
-	dma_sync_sg_for_device(uvm_dev->pdev,
-			       sgt->sgl, sgt->nents, DMA_BIDIRECTIONAL);
 	return sgt;
 }
 
@@ -430,6 +444,12 @@ static int uvm_alloc_buffer(struct uvm_alloc_data *uad)
 	struct dma_buf *dmabuf;
 	struct uvm_buffer *buffer;
 	int fd;
+
+	if (uad->size > MAX_WIDTH * MAX_HEIGHT * 3 / 2) {
+		pr_err("warning: uad->size:%d is invalid. uad->width:%d, uad->height:%d.\n",
+			 uad->size, uad->width, uad->height);
+		return -1;
+	}
 
 	buffer = kzalloc(sizeof(struct uvm_buffer), GFP_KERNEL);
 	if (!buffer)
